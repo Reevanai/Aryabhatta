@@ -1,0 +1,11 @@
+# Only the application code is needed to run the API function.
+tests
+research
+docs
+deploy
+examples
+scripts
+.github
+*.md
+Makefile
+.dockerignore

@@ -15,6 +15,9 @@ dev = [
 [tool.uv]
 package = false
 
+[tool.vercel]
+entrypoint = "app:app"
+
 [tool.uv.workspace]
 members = ["packages/sentinel_core", "modules/ingestion", "apps/api", "apps/ingest"]
 
@@ -43,7 +46,7 @@ ignore = ["S101", "E501"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["packages", "modules", "apps", "tests", "scripts"]
+files = ["packages", "modules", "apps", "tests", "scripts", "app.py"]
 explicit_package_bases = true
 mypy_path = ["packages/sentinel_core", "modules/ingestion", "apps/api", "apps/ingest"]
 

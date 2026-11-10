@@ -19,6 +19,9 @@ Changed from the Phase 1 design:
 - The outbox is ordered by an identity column.
 - Batch datasets are parties, accounts and transactions; loans and devices move to Phase 3.
 
+Added after the phase: a module-level app entrypoint (`app.py`) with an unconfigured mode, so
+hosts such as Vercel can build and serve the API documentation without backing services.
+
 Measured: 194 tests, 93% coverage; batch ingestion about 1,470 rows/s on the development stack.
 
 ### Phase 1 — architecture (2026-11-10)
