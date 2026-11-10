@@ -148,6 +148,7 @@ CREATE TRIGGER audit_anchor_append_only BEFORE UPDATE OR DELETE ON core.audit_an
 
 CREATE TABLE core.outbox (
   id           uuid PRIMARY KEY,
+  seq          bigint GENERATED ALWAYS AS IDENTITY,
   tenant_id    uuid NOT NULL REFERENCES core.tenant (id),
   topic        text NOT NULL,
   key          text NOT NULL,
@@ -155,7 +156,7 @@ CREATE TABLE core.outbox (
   created_at   timestamptz NOT NULL DEFAULT now(),
   published_at timestamptz
 );
-CREATE INDEX outbox_unpublished ON core.outbox (created_at, id) WHERE published_at IS NULL;
+CREATE INDEX outbox_unpublished ON core.outbox (seq) WHERE published_at IS NULL;
 
 CREATE TABLE vault.pii_token (
   tenant_id   uuid NOT NULL REFERENCES core.tenant (id),
@@ -271,9 +272,17 @@ CREATE TABLE ingestion.transaction (
   status                     text NOT NULL CHECK (status IN ('attempted', 'completed', 'failed', 'reversed')),
   attributes                 jsonb NOT NULL DEFAULT '{}'::jsonb,
   ingested_at                timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (tenant_id, id, booked_at),
-  UNIQUE (tenant_id, source_reference, booked_at)
+  PRIMARY KEY (tenant_id, id, booked_at)
 ) PARTITION BY RANGE (booked_at);
+
+-- A partitioned table cannot enforce uniqueness without the partition key, so the source
+-- reference is claimed here first. This makes ingestion idempotent on the reference alone.
+CREATE TABLE ingestion.transaction_ref (
+  tenant_id        uuid NOT NULL REFERENCES core.tenant (id),
+  source_reference text NOT NULL,
+  transaction_id   uuid NOT NULL,
+  PRIMARY KEY (tenant_id, source_reference)
+);
 
 CREATE TABLE ingestion.transaction_default PARTITION OF ingestion.transaction DEFAULT;
 CREATE INDEX transaction_account_time ON ingestion.transaction (tenant_id, account_id, booked_at);
@@ -347,7 +356,7 @@ GRANT SELECT, UPDATE, DELETE ON core.outbox TO sentinel_relay;
 GRANT SELECT, INSERT ON vault.pii_token TO sentinel_vault;
 GRANT SELECT, INSERT, UPDATE ON ingestion.batch_job, ingestion.batch_queue,
   ingestion.quarantine_record, ingestion.party, ingestion.account TO sentinel_app;
-GRANT SELECT, INSERT ON ingestion.transaction TO sentinel_app;
+GRANT SELECT, INSERT ON ingestion.transaction, ingestion.transaction_ref TO sentinel_app;
 
 -- Reference data ----------------------------------------------------------------
 

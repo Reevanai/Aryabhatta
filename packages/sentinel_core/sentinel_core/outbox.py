@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Protocol
 
 from sqlalchemy import text
@@ -14,23 +14,35 @@ from sentinel_core.logging import get_logger
 log = get_logger(__name__)
 
 
+_INSERT = text(
+    "INSERT INTO core.outbox (id, tenant_id, topic, key, event) "
+    "VALUES (:id, :t, :topic, :key, CAST(:event AS jsonb))"
+)
+
+
+def _row(topic: str, key: str, event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": event["event_id"],
+        "t": event["tenant_id"],
+        "topic": topic,
+        "key": key,
+        "event": json.dumps(event),
+    }
+
+
 async def add_to_outbox(
     conn: AsyncConnection, *, topic: str, key: str, event: dict[str, Any]
 ) -> None:
     """Queue a validated event in the caller's transaction."""
-    await conn.execute(
-        text(
-            "INSERT INTO core.outbox (id, tenant_id, topic, key, event) "
-            "VALUES (:id, :t, :topic, :key, CAST(:event AS jsonb))"
-        ),
-        {
-            "id": event["event_id"],
-            "t": event["tenant_id"],
-            "topic": topic,
-            "key": key,
-            "event": json.dumps(event),
-        },
-    )
+    await conn.execute(_INSERT, _row(topic, key, event))
+
+
+async def add_many_to_outbox(
+    conn: AsyncConnection, *, topic: str, events: Sequence[tuple[str, dict[str, Any]]]
+) -> None:
+    """Queue validated (key, event) pairs for one topic in the caller's transaction."""
+    if events:
+        await conn.execute(_INSERT, [_row(topic, key, event) for key, event in events])
 
 
 class Publisher(Protocol):
@@ -40,7 +52,10 @@ class Publisher(Protocol):
 
 
 class OutboxRelay:
-    """Publishes unpublished outbox rows in creation order, then marks them published.
+    """Publishes unpublished outbox rows in insertion order, then marks them published.
+
+    Order is the order of insertion (an identity column), which preserves the order of events
+    written by one transaction. Events from concurrent transactions may interleave.
 
     Delivery is at least once: a crash after publishing and before the update republishes the
     row, so consumers deduplicate on `event_id`.
@@ -57,7 +72,7 @@ class OutboxRelay:
                 await conn.execute(
                     text(
                         "SELECT id, tenant_id, topic, key, event FROM core.outbox "
-                        "WHERE published_at IS NULL ORDER BY created_at, id "
+                        "WHERE published_at IS NULL ORDER BY seq "
                         "LIMIT :n FOR UPDATE SKIP LOCKED"
                     ),
                     {"n": self._batch_size},

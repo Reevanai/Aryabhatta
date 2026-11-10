@@ -82,7 +82,7 @@ def settings(database_name: str, tmp_path_factory: pytest.TempPathFactory) -> Se
         database_url_vault=_url("sentinel_vault", database_name),
         database_url_relay=_url("sentinel_relay", database_name),
         database_url_owner=_url("sentinel_owner", database_name),
-        local_master_key=base64.b64encode(secrets.token_bytes(32)).decode(),  # type: ignore[arg-type]
+        local_master_key=base64.b64encode(secrets.token_bytes(32)).decode(),
         kafka_bootstrap=KAFKA_BOOTSTRAP,
         filestore_dir=files,
         oidc_audience=AUDIENCE,

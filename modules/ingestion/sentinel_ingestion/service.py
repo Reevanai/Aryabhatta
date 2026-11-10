@@ -12,7 +12,7 @@ from sentinel_core.context import TenantContext
 from sentinel_core.crypto import decrypt, encrypt
 from sentinel_core.events import build_event
 from sentinel_core.ids import uuid7
-from sentinel_core.outbox import add_to_outbox
+from sentinel_core.outbox import add_many_to_outbox
 from sentinel_core.runtime import Platform
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -287,6 +287,7 @@ class IngestionService:
         async with self._p.db.tenant_tx(ctx) as conn:
             branches = await _branches(conn)
             accounts = await _accounts_by_token(conn, [tokens[s["account"]] for s in slots])
+            candidates: dict[str, dict[str, Any]] = {}
             for (number, raw, txn), slot in zip(valid, slots, strict=True):
                 account_token = tokens[slot["account"]]
                 account = accounts.get(account_token)
@@ -300,84 +301,103 @@ class IngestionService:
                         chunk.reject(number, raw, _ref_error("branch_code", "unknown branch"))
                         continue
                     branch_id = known
+                if txn.source_reference in candidates:
+                    chunk.counts.duplicates += 1
+                    continue
                 await self._ensure_partition(conn, txn.booked_at.date())
-                transaction_id = uuid7()
                 optional = {
                     name: tokens[slot[name]] if name in slot else None
                     for name in ("cp_account", "cp_vpa", "device", "ip")
                 }
-                inserted = (
-                    await conn.execute(
-                        text(
-                            "INSERT INTO ingestion.transaction (id, tenant_id, branch_id, source_reference, "
-                            "channel, direction, amount, currency, booked_at, account_id, account_token, "
-                            "party_token, counterparty_account_token, counterparty_vpa_token, "
-                            "counterparty_bank_code, device_token, ip_token, merchant_category, status, "
-                            "attributes) VALUES (:id, :t, :b, :ref, :ch, :dir, :amt, :cur, :at, :acc, "
-                            ":acct, :party, :cpa, :cpv, :cpb, :dev, :ip, :mcc, :st, CAST(:attrs AS jsonb)) "
-                            "ON CONFLICT (tenant_id, source_reference, booked_at) DO NOTHING RETURNING id"
-                        ),
-                        {
-                            "id": transaction_id,
-                            "t": ctx.tenant_id,
-                            "b": branch_id,
-                            "ref": txn.source_reference,
-                            "ch": txn.channel,
-                            "dir": txn.direction,
-                            "amt": txn.amount.amount,
-                            "cur": txn.amount.currency,
-                            "at": txn.booked_at,
-                            "acc": account.id,
-                            "acct": account_token,
-                            "party": account.party_token,
-                            "cpa": optional["cp_account"],
-                            "cpv": optional["cp_vpa"],
-                            "cpb": txn.counterparty_bank_code,
-                            "dev": optional["device"],
-                            "ip": optional["ip"],
-                            "mcc": txn.merchant_category,
-                            "st": txn.status,
-                            "attrs": json.dumps(txn.attributes),
-                        },
-                    )
-                ).first()
-                if inserted is None:
-                    chunk.counts.duplicates += 1
-                    continue
-                chunk.counts.loaded += 1
-                event = build_event(
-                    ctx,
-                    event_type="ingestion.transaction.received",
-                    producer=PRODUCER,
-                    branch_id=branch_id,
-                    payload={
-                        "transaction_id": str(transaction_id),
-                        "source_reference": txn.source_reference,
-                        "channel": txn.channel,
-                        "direction": txn.direction,
-                        "amount": {
-                            "amount": f"{txn.amount.amount:.2f}",
-                            "currency": txn.amount.currency,
-                        },
-                        "booked_at": txn.booked_at.isoformat(),
-                        "account_token": account_token,
-                        "party_token": account.party_token,
-                        "counterparty_account_token": optional["cp_account"],
-                        "counterparty_vpa_token": optional["cp_vpa"],
-                        "counterparty_bank_code": txn.counterparty_bank_code,
-                        "device_token": optional["device"],
-                        "ip_token": optional["ip"],
-                        "merchant_category": txn.merchant_category,
-                        "status": txn.status,
-                        "attributes": txn.attributes,
+                candidates[txn.source_reference] = {
+                    "id": uuid7(),
+                    "t": ctx.tenant_id,
+                    "b": branch_id,
+                    "ref": txn.source_reference,
+                    "ch": txn.channel,
+                    "dir": txn.direction,
+                    "amt": txn.amount.amount,
+                    "cur": txn.amount.currency,
+                    "at": txn.booked_at,
+                    "acc": account.id,
+                    "acct": account_token,
+                    "party": account.party_token,
+                    "cpa": optional["cp_account"],
+                    "cpv": optional["cp_vpa"],
+                    "cpb": txn.counterparty_bank_code,
+                    "dev": optional["device"],
+                    "ip": optional["ip"],
+                    "mcc": txn.merchant_category,
+                    "st": txn.status,
+                    "attrs": json.dumps(txn.attributes),
+                    "attributes": txn.attributes,
+                }
+            if not candidates:
+                return
+            # Claim the references in one statement; only unclaimed ones are new.
+            claimed = {
+                row.source_reference
+                for row in await conn.execute(
+                    text(
+                        "INSERT INTO ingestion.transaction_ref (tenant_id, source_reference, "
+                        "transaction_id) SELECT :t, u.ref, u.id FROM unnest(CAST(:refs AS text[]), "
+                        "CAST(:ids AS uuid[])) AS u(ref, id) ON CONFLICT DO NOTHING "
+                        "RETURNING source_reference"
+                    ),
+                    {
+                        "t": ctx.tenant_id,
+                        "refs": list(candidates),
+                        "ids": [c["id"] for c in candidates.values()],
                     },
                 )
-                await add_to_outbox(
-                    conn,
-                    topic=TRANSACTION_TOPIC,
-                    key=f"{ctx.tenant_id}:{account_token}",
-                    event=event,
+            }
+            fresh = [c for ref, c in candidates.items() if ref in claimed]
+            chunk.counts.duplicates += len(candidates) - len(fresh)
+            if not fresh:
+                return
+            await conn.execute(
+                text(
+                    "INSERT INTO ingestion.transaction (id, tenant_id, branch_id, source_reference, "
+                    "channel, direction, amount, currency, booked_at, account_id, account_token, "
+                    "party_token, counterparty_account_token, counterparty_vpa_token, "
+                    "counterparty_bank_code, device_token, ip_token, merchant_category, status, "
+                    "attributes) VALUES (:id, :t, :b, :ref, :ch, :dir, :amt, :cur, :at, :acc, "
+                    ":acct, :party, :cpa, :cpv, :cpb, :dev, :ip, :mcc, :st, CAST(:attrs AS jsonb))"
+                ),
+                [{k: v for k, v in c.items() if k != "attributes"} for c in fresh],
+            )
+            events = [
+                (
+                    f"{ctx.tenant_id}:{c['acct']}",
+                    build_event(
+                        ctx,
+                        event_type="ingestion.transaction.received",
+                        producer=PRODUCER,
+                        branch_id=c["b"],
+                        payload={
+                            "transaction_id": str(c["id"]),
+                            "source_reference": c["ref"],
+                            "channel": c["ch"],
+                            "direction": c["dir"],
+                            "amount": {"amount": f"{c['amt']:.2f}", "currency": c["cur"]},
+                            "booked_at": c["at"].isoformat(),
+                            "account_token": c["acct"],
+                            "party_token": c["party"],
+                            "counterparty_account_token": c["cpa"],
+                            "counterparty_vpa_token": c["cpv"],
+                            "counterparty_bank_code": c["cpb"],
+                            "device_token": c["dev"],
+                            "ip_token": c["ip"],
+                            "merchant_category": c["mcc"],
+                            "status": c["st"],
+                            "attributes": c["attributes"],
+                        },
+                    ),
                 )
+                for c in fresh
+            ]
+            await add_many_to_outbox(conn, topic=TRANSACTION_TOPIC, events=events)
+            chunk.counts.loaded += len(fresh)
 
     async def _ensure_partition(self, conn: AsyncConnection, day: date) -> None:
         month = (day.year, day.month)

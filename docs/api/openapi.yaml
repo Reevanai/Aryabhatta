@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Sentinel API
-  version: 0.1.0
+  version: 0.2.0
   summary: Fraud, AML and cyber-risk platform API
   description: |
-    Phase 1 contract. No implementation exists yet.
+    Phase 2 operations are implemented. Later phases are contract only.
 
     Each operation carries `x-sentinel-phase` (the build phase that implements it) and
     `x-sentinel-status`:
@@ -210,7 +210,8 @@ paths:
               properties:
                 dataset:
                   type: string
-                  enum: [parties, accounts, loans, transactions, devices]
+                  enum: [parties, accounts, transactions]
+                  description: Loans and devices are added with the synthetic data generator (Phase 3).
                 file:
                   type: string
                   format: binary
@@ -295,10 +296,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [accepted, quarantined]
+                required: [accepted, quarantined, duplicates]
                 properties:
                   accepted: { type: integer }
                   quarantined: { type: integer }
+                  duplicates:
+                    type: integer
+                    description: Already ingested (same source_reference); ignored.
         default: { $ref: "#/components/responses/Problem" }
 
   /score:
@@ -1074,14 +1078,18 @@ components:
         file_sha256: { type: string }
         created_at: { type: string, format: date-time }
         completed_at: { type: [string, "null"], format: date-time }
+        error: { type: [string, "null"] }
 
     QuarantineRecord:
       type: object
-      required: [id, batch_id, errors]
+      description: Why a record was rejected. The rejected content is stored encrypted and is not returned.
+      required: [id, source, dataset, errors, status]
       properties:
         id: { type: string, format: uuid }
-        batch_id: { type: string, format: uuid }
-        row_number: { type: integer }
+        batch_id: { type: [string, "null"], format: uuid }
+        source: { type: string, enum: [batch, http, stream] }
+        dataset: { type: string }
+        row_number: { type: [integer, "null"], description: Line number in the file (the header is line 1) }
         errors:
           type: array
           items:

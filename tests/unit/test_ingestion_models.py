@@ -147,10 +147,10 @@ def test_transaction_time_must_not_be_far_in_the_future() -> None:
 
 
 @pytest.mark.parametrize(
-    "field,value", [("channel", "pigeon"), ("direction", "sideways"), ("status", "maybe")]
+    ("field", "value"), [("channel", "pigeon"), ("direction", "sideways"), ("status", "maybe")]
 )
 def test_transaction_enumerations(field: str, value: str) -> None:
-    assert field in errors_for(TransactionInput, txn(1, **{field: value}))
+    assert field in errors_for(TransactionInput, {**txn(1), field: value})
 
 
 def test_transaction_ip_address_must_parse() -> None:

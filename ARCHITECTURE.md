@@ -1,6 +1,7 @@
 # Sentinel — architecture
 
-Status: **Phase 1 design. No feature code exists yet.** Version 0.1, 2026-11-10.
+Status: design, with Phase 2 (platform core) implemented. Version 0.2, 2026-11-10.
+Where the built code differs from this document, the module READMEs and `CHANGELOG.md` say so.
 
 Companion documents:
 
@@ -349,7 +350,7 @@ erDiagram
 |--------|--------|-------|
 | `core` | `tenant`, `branch`, `user_profile`, `role_assignment`, `tenant_key`, `data_catalogue`, `purpose`, `retention_policy`, `legal_hold`, `audit_event`, `outbox`, `regulatory_reference` | `audit_event` is append-only and hash-chained |
 | `vault` | `pii_token` | Token → ciphertext. Separate schema, separate database role |
-| `ingestion` | `batch_job`, `batch_record_error`, `quarantine_record`, `party`, `party_identifier`, `account`, `account_holder`, `loan`, `transaction`, `counterparty` | `transaction` is partitioned by month |
+| `ingestion` | Built: `batch_job`, `batch_queue`, `quarantine_record`, `party`, `account`, `transaction`, `transaction_ref`. Planned: `party_identifier`, `account_holder`, `loan`, `counterparty` | `transaction` is partitioned by month; `transaction_ref` makes ingestion idempotent |
 | `txn_fraud` | `rule`, `rule_version`, `ruleset_version`, `backtest_run`, `backtest_result`, `score`, `score_reason`, `threshold_profile` | Rule versions are immutable |
 | `mule` | `mule_risk`, `flow_finding` | |
 | `cases` | `alert`, `case`, `case_event`, `case_assignment`, `evidence`, `note`, `task`, `decision`, `ai_summary` | `ai_summary` stores the evidence ids it used |

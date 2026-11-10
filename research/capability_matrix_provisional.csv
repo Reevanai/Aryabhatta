@@ -1,73 +1,73 @@
-id,group,capability,decision,chosen component,licence,reason,phase
-P-001,Platform core,Tenancy (bank -> branch) with row-level security,BUILD,PostgreSQL 16 RLS,PostgreSQL,Core isolation model; no OSS product fits,2
-P-002,Platform core,"Authentication, MFA, RBAC",ADOPT-OSS,Keycloak,Apache-2.0,Mature OIDC provider,2
-P-003,Platform core,Append-only hash-chained audit log,BUILD,In-house,-,"Small, security-critical, must match our data model",2
-P-004,Platform core,Encryption and per-tenant keys,ADOPT-OSS,OpenBao transit + SOPS,MPL-2.0,Vault is BUSL; OpenBao is the API-compatible open fork,2
-P-005,Platform core,Batch CSV ingestion,BUILD,In-house + Pandera,MIT,Validation library adopted; framework built,2
-P-006,Platform core,Streaming event ingestion,ADOPT-OSS,"Kafka API (Redpanda dev, Apache Kafka prod)",BSL dev / Apache-2.0 prod,Code to the protocol; ship only Apache-licensed broker,2
-P-007,Platform core,Data validation and quarantine,BUILD,In-house + Pandera,MIT,,2
-P-008,Platform core,PII tokenisation,BUILD,In-house + Presidio for free text,MIT,Deterministic per-tenant tokens are product-specific,2
-P-009,Platform core,Synthetic data generator with labelled fraud,BUILD,In-house,-,AMLSim and PaySim do not model Indian rails; PaySim is GPL,3
-P-010,3. Transaction fraud,Rule engine with no-code configuration,BUILD,In-house; evaluate GoRules Zen as evaluator,MIT (Zen),"Marble is Elastic 2.0, Jube AGPL, Tazama a different stack",4
-P-011,3. Transaction fraud,Versioned rules with dry-run and backtest,BUILD,In-house,-,Depends on our event store,4
-P-012,3. Transaction fraud,Velocity checks,BUILD,In-house,-,,4
-P-013,3. Transaction fraud,Dynamic thresholds,BUILD,In-house,-,,4
-P-014,3. Transaction fraud,Real-time scoring service (p95 < 150 ms),BUILD,In-house (FastAPI),-,Latency target must be measured on our path,4
-P-015,4. Mule intelligence,Mule risk scoring,BUILD,In-house; LightGBM + rules,MIT,MuleHunter.AI has no public spec or code,4
-P-016,4. Mule intelligence,Rapid-movement detection,BUILD,In-house,-,,4
-P-017,4. Mule intelligence,Circular-flow detection,BUILD,In-house (recursive SQL / NetworkX),BSD-3-Clause,,4
-P-018,4. Mule intelligence,RBIH MuleHunter.AI integration,STUB,Adapter interface,-,Needs bank-side agreement; no public API,4
-P-019,4. Mule intelligence,DPIP integration,STUB,Adapter interface,-,Platform still being developed per RBI,4
-P-020,4. Mule intelligence,DoT Financial Fraud Risk Indicator input,STUB,Adapter interface,-,Access via DoT Digital Intelligence Platform onboarding,4
-P-021,4. Mule intelligence,I4C Suspect Registry lookup,STUB,Adapter interface,-,Needs bank-side agreement,4
-P-022,8. Case management,Alert queue and prioritisation,BUILD,In-house,-,,5
-P-023,8. Case management,Case lifecycle and routing,BUILD,In-house on Temporal,MIT,No permissive multi-tenant case manager found,5
-P-024,8. Case management,"Evidence, notes, collaboration, escalation",BUILD,In-house,-,,5
-P-025,8. Case management,Case audit trail,BUILD,Platform audit log,-,,5
-P-026,8. Case management,Investigator dashboards,BUILD,In-house (Next.js),MIT,,5
-P-027,8. Case management,"AI-generated case summaries (labelled drafts, cited evidence)",BUILD,In-house; LLM behind a provider interface,-,Model provider is a deployment choice,5
-P-028,5. Graph & network intelligence,Entity resolution,ADOPT-OSS,Splink,MIT,Explainable match weights; Zingg is AGPL,6
-P-029,5. Graph & network intelligence,Entity 360,BUILD,In-house,-,,6
-P-030,5. Graph & network intelligence,Connected components and community detection,ADOPT-OSS,NetworkX,BSD-3-Clause,igraph and leidenalg are GPL,6
-P-031,5. Graph & network intelligence,Fraud-ring detection,BUILD,In-house on NetworkX,BSD-3-Clause,,6
-P-032,5. Graph & network intelligence,Risk propagation,BUILD,In-house,-,,6
-P-033,5. Graph & network intelligence,Graph storage,BUILD,GraphStore port: PostgreSQL default; Neo4j Community optional,"PostgreSQL / GPL-3.0 (optional, bank-deployed)",Memgraph BSL forbids distribution; see RESEARCH.md section 5,6
-P-034,5. Graph & network intelligence,Interactive network visualisation,ADOPT-OSS,Cytoscape.js,MIT,,6
-P-035,7. AML & compliance,AML typologies,BUILD,In-house on rule engine,-,,7
-P-036,7. AML & compliance,STR/CTR preparation workflow,BUILD,In-house on Temporal,MIT,,7
-P-037,7. AML & compliance,FIU-IND FINGate export files,STUB,Serialiser stub,-,Current format spec not yet read; no invented fields,7
-P-038,7. AML & compliance,Sanctions screening,ADOPT-OSS,Moov Watchman,Apache-2.0,"Public lists, no data licence needed",7
-P-039,7. AML & compliance,PEP screening,INTEGRATE-VENDOR,yente + OpenSanctions data licence,MIT code / CC BY-NC data,Data requires a commercial licence,7
-P-040,7. AML & compliance,CDD / EDD workflows,BUILD,In-house,-,,7
-P-041,7. AML & compliance,Customer risk categorisation,BUILD,In-house,-,Parameters from RBI KYC Directions (to verify),7
-P-042,7. AML & compliance,RBI / NABARD report drafts,BUILD,In-house; formats TODO(verify),-,Formats must come from primary sources,7
-P-043,9. AI & ML,Supervised models,ADOPT-OSS,"scikit-learn, LightGBM",BSD-3-Clause / MIT,,8
-P-044,9. AI & ML,Unsupervised anomaly detection,ADOPT-OSS,PyOD,BSD-2-Clause,,8
-P-045,9. AI & ML,Graph ML,ADOPT-OSS,PyTorch Geometric,MIT,DGL inactive since 2025-07,8
-P-046,9. AI & ML,Explainability,ADOPT-OSS,SHAP,MIT,,8
-P-047,9. AI & ML,Model registry,ADOPT-OSS,MLflow,Apache-2.0,,8
-P-048,9. AI & ML,Performance and drift monitoring,ADOPT-OSS,Evidently,Apache-2.0,,8
-P-049,9. AI & ML,"Natural-language investigation (read-only, tenant-scoped, cited)",BUILD,In-house; LLM behind a provider interface,-,,8
-P-050,6. OSINT & threat intel,Public feed ingestion,BUILD,"In-house adapters, off by default",-,Feed terms restrict commercial use,9
-P-051,6. OSINT & threat intel,Domain / IP reputation and indicator enrichment,BUILD,In-house,-,,9
-P-052,6. OSINT & threat intel,Phishing domain detection,BUILD,In-house (lookalike scoring),-,,9
-P-053,6. OSINT & threat intel,MISP integration,ADOPT-OSS,MISP REST API,AGPL-3.0 (external service),API only; no code linked,9
-P-054,6. OSINT & threat intel,OpenCTI integration,ADOPT-OSS,OpenCTI Community API,Apache-2.0,Community features only,9
-P-055,6. OSINT & threat intel,Dark-web intelligence,INTEGRATE-VENDOR,Licensed vendor feed adapter,-,"No crawlers, by project rule",9
-P-056,1. Identity & KYC,Document OCR,ADOPT-OSS,Tesseract; PaddleOCR pending model licence,Apache-2.0,,10
-P-057,1. Identity & KYC,Face match,INTEGRATE-VENDOR,FaceMatchProvider adapter,-,InsightFace models are non-commercial,10
-P-058,1. Identity & KYC,Liveness / spoof detection,INTEGRATE-VENDOR,LivenessProvider adapter; Silent-Face demo reference,Apache-2.0 (demo),Open models not adequate for V-CIP,10
-P-059,1. Identity & KYC,Deepfake / injection detection,INTEGRATE-VENDOR,Vendor adapter,-,DeepfakeBench is CC BY-NC,10
-P-060,1. Identity & KYC,CKYC search / download,STUB,Adapter interface,-,Requires CERSAI registration,10
-P-061,2. Device & behaviour,Device and behaviour signals,BUILD,"Demo SDK, consent-based",-,Embedded in the bank's own app,10
-P-062,2. Device & behaviour,Behavioural biometrics,INTEGRATE-VENDOR,Vendor adapter,-,,10
-P-063,10. Cybersecurity & bank risk,SIEM alert ingestion,ADOPT-OSS,Wazuh API,GPL-2.0 / AGPL-3.0 (external service),API only,11
-P-064,10. Cybersecurity & bank risk,Vulnerability findings ingestion,ADOPT-OSS,DefectDojo API,BSD-3-Clause,,11
-P-065,10. Cybersecurity & bank risk,Incident register with CERT-In 6-hour workflow,BUILD,In-house on Temporal,MIT,Also models RBI six-hour reporting,11
-P-066,10. Cybersecurity & bank risk,Third-party risk,BUILD,In-house,-,,11
-P-067,10. Cybersecurity & bank risk,Control tracking mapped to RBI UCB framework,BUILD,In-house; control list TODO(verify) from RBI/DoS/2026-27/437,-,2019 framework appears withdrawn,11
-P-068,11. Integrations,CBS connectors,BUILD,Adapter pattern + one synthetic reference adapter,-,,12
-P-069,11. Integrations,Webhooks and notifications,BUILD,In-house,-,,12
-P-070,12. Enterprise,Dashboards,BUILD,In-house,-,,12
-P-071,12. Enterprise,Retention controls,BUILD,In-house,-,DPDP purpose tags and schedules,12
-P-072,12. Enterprise,Usage analytics and licence management,BUILD,In-house,-,,12
+id,group,capability,decision,chosen component,licence,reason,phase,status
+P-001,Platform core,Tenancy (bank -> branch) with row-level security,BUILD,PostgreSQL 16 RLS,PostgreSQL,Core isolation model; no OSS product fits,2,built (phase 2)
+P-002,Platform core,"Authentication, MFA, RBAC",ADOPT-OSS,Keycloak,Apache-2.0,Mature OIDC provider,2,built (phase 2)
+P-003,Platform core,Append-only hash-chained audit log,BUILD,In-house,-,"Small, security-critical, must match our data model",2,built (phase 2)
+P-004,Platform core,Encryption and per-tenant keys,ADOPT-OSS,OpenBao transit + SOPS,MPL-2.0,Vault is BUSL; OpenBao is the API-compatible open fork,2,built (phase 2)
+P-005,Platform core,Batch CSV ingestion,BUILD,In-house + Pydantic,MIT,Per-row errors needed for quarantine,2,built (phase 2)
+P-006,Platform core,Streaming event ingestion,ADOPT-OSS,"Kafka API (Redpanda dev, Apache Kafka prod)",BSL dev / Apache-2.0 prod,Code to the protocol; ship only Apache-licensed broker,2,built (phase 2)
+P-007,Platform core,Data validation and quarantine,BUILD,In-house + Pydantic,MIT,,2,built (phase 2)
+P-008,Platform core,PII tokenisation,BUILD,In-house + Presidio for free text,MIT,Deterministic per-tenant tokens are product-specific,2,built (phase 2)
+P-009,Platform core,Synthetic data generator with labelled fraud,BUILD,In-house,-,AMLSim and PaySim do not model Indian rails; PaySim is GPL,3,not started
+P-010,3. Transaction fraud,Rule engine with no-code configuration,BUILD,In-house; evaluate GoRules Zen as evaluator,MIT (Zen),"Marble is Elastic 2.0, Jube AGPL, Tazama a different stack",4,not started
+P-011,3. Transaction fraud,Versioned rules with dry-run and backtest,BUILD,In-house,-,Depends on our event store,4,not started
+P-012,3. Transaction fraud,Velocity checks,BUILD,In-house,-,,4,not started
+P-013,3. Transaction fraud,Dynamic thresholds,BUILD,In-house,-,,4,not started
+P-014,3. Transaction fraud,Real-time scoring service (p95 < 150 ms),BUILD,In-house (FastAPI),-,Latency target must be measured on our path,4,not started
+P-015,4. Mule intelligence,Mule risk scoring,BUILD,In-house; LightGBM + rules,MIT,MuleHunter.AI has no public spec or code,4,not started
+P-016,4. Mule intelligence,Rapid-movement detection,BUILD,In-house,-,,4,not started
+P-017,4. Mule intelligence,Circular-flow detection,BUILD,In-house (recursive SQL / NetworkX),BSD-3-Clause,,4,not started
+P-018,4. Mule intelligence,RBIH MuleHunter.AI integration,STUB,Adapter interface,-,Needs bank-side agreement; no public API,4,not started
+P-019,4. Mule intelligence,DPIP integration,STUB,Adapter interface,-,Platform still being developed per RBI,4,not started
+P-020,4. Mule intelligence,DoT Financial Fraud Risk Indicator input,STUB,Adapter interface,-,Access via DoT Digital Intelligence Platform onboarding,4,not started
+P-021,4. Mule intelligence,I4C Suspect Registry lookup,STUB,Adapter interface,-,Needs bank-side agreement,4,not started
+P-022,8. Case management,Alert queue and prioritisation,BUILD,In-house,-,,5,not started
+P-023,8. Case management,Case lifecycle and routing,BUILD,In-house on Temporal,MIT,No permissive multi-tenant case manager found,5,not started
+P-024,8. Case management,"Evidence, notes, collaboration, escalation",BUILD,In-house,-,,5,not started
+P-025,8. Case management,Case audit trail,BUILD,Platform audit log,-,,5,not started
+P-026,8. Case management,Investigator dashboards,BUILD,In-house (Next.js),MIT,,5,not started
+P-027,8. Case management,"AI-generated case summaries (labelled drafts, cited evidence)",BUILD,In-house; LLM behind a provider interface,-,Model provider is a deployment choice,5,not started
+P-028,5. Graph & network intelligence,Entity resolution,ADOPT-OSS,Splink,MIT,Explainable match weights; Zingg is AGPL,6,not started
+P-029,5. Graph & network intelligence,Entity 360,BUILD,In-house,-,,6,not started
+P-030,5. Graph & network intelligence,Connected components and community detection,ADOPT-OSS,NetworkX,BSD-3-Clause,igraph and leidenalg are GPL,6,not started
+P-031,5. Graph & network intelligence,Fraud-ring detection,BUILD,In-house on NetworkX,BSD-3-Clause,,6,not started
+P-032,5. Graph & network intelligence,Risk propagation,BUILD,In-house,-,,6,not started
+P-033,5. Graph & network intelligence,Graph storage,BUILD,GraphStore port: PostgreSQL default; Neo4j Community optional,"PostgreSQL / GPL-3.0 (optional, bank-deployed)",Memgraph BSL forbids distribution; see RESEARCH.md section 5,6,not started
+P-034,5. Graph & network intelligence,Interactive network visualisation,ADOPT-OSS,Cytoscape.js,MIT,,6,not started
+P-035,7. AML & compliance,AML typologies,BUILD,In-house on rule engine,-,,7,not started
+P-036,7. AML & compliance,STR/CTR preparation workflow,BUILD,In-house on Temporal,MIT,,7,not started
+P-037,7. AML & compliance,FIU-IND FINGate export files,STUB,Serialiser stub,-,Current format spec not yet read; no invented fields,7,not started
+P-038,7. AML & compliance,Sanctions screening,ADOPT-OSS,Moov Watchman,Apache-2.0,"Public lists, no data licence needed",7,not started
+P-039,7. AML & compliance,PEP screening,INTEGRATE-VENDOR,yente + OpenSanctions data licence,MIT code / CC BY-NC data,Data requires a commercial licence,7,not started
+P-040,7. AML & compliance,CDD / EDD workflows,BUILD,In-house,-,,7,not started
+P-041,7. AML & compliance,Customer risk categorisation,BUILD,In-house,-,Parameters from RBI KYC Directions (to verify),7,not started
+P-042,7. AML & compliance,RBI / NABARD report drafts,BUILD,In-house; formats TODO(verify),-,Formats must come from primary sources,7,not started
+P-043,9. AI & ML,Supervised models,ADOPT-OSS,"scikit-learn, LightGBM",BSD-3-Clause / MIT,,8,not started
+P-044,9. AI & ML,Unsupervised anomaly detection,ADOPT-OSS,PyOD,BSD-2-Clause,,8,not started
+P-045,9. AI & ML,Graph ML,ADOPT-OSS,PyTorch Geometric,MIT,DGL inactive since 2025-07,8,not started
+P-046,9. AI & ML,Explainability,ADOPT-OSS,SHAP,MIT,,8,not started
+P-047,9. AI & ML,Model registry,ADOPT-OSS,MLflow,Apache-2.0,,8,not started
+P-048,9. AI & ML,Performance and drift monitoring,ADOPT-OSS,Evidently,Apache-2.0,,8,not started
+P-049,9. AI & ML,"Natural-language investigation (read-only, tenant-scoped, cited)",BUILD,In-house; LLM behind a provider interface,-,,8,not started
+P-050,6. OSINT & threat intel,Public feed ingestion,BUILD,"In-house adapters, off by default",-,Feed terms restrict commercial use,9,not started
+P-051,6. OSINT & threat intel,Domain / IP reputation and indicator enrichment,BUILD,In-house,-,,9,not started
+P-052,6. OSINT & threat intel,Phishing domain detection,BUILD,In-house (lookalike scoring),-,,9,not started
+P-053,6. OSINT & threat intel,MISP integration,ADOPT-OSS,MISP REST API,AGPL-3.0 (external service),API only; no code linked,9,not started
+P-054,6. OSINT & threat intel,OpenCTI integration,ADOPT-OSS,OpenCTI Community API,Apache-2.0,Community features only,9,not started
+P-055,6. OSINT & threat intel,Dark-web intelligence,INTEGRATE-VENDOR,Licensed vendor feed adapter,-,"No crawlers, by project rule",9,not started
+P-056,1. Identity & KYC,Document OCR,ADOPT-OSS,Tesseract; PaddleOCR pending model licence,Apache-2.0,,10,not started
+P-057,1. Identity & KYC,Face match,INTEGRATE-VENDOR,FaceMatchProvider adapter,-,InsightFace models are non-commercial,10,not started
+P-058,1. Identity & KYC,Liveness / spoof detection,INTEGRATE-VENDOR,LivenessProvider adapter; Silent-Face demo reference,Apache-2.0 (demo),Open models not adequate for V-CIP,10,not started
+P-059,1. Identity & KYC,Deepfake / injection detection,INTEGRATE-VENDOR,Vendor adapter,-,DeepfakeBench is CC BY-NC,10,not started
+P-060,1. Identity & KYC,CKYC search / download,STUB,Adapter interface,-,Requires CERSAI registration,10,not started
+P-061,2. Device & behaviour,Device and behaviour signals,BUILD,"Demo SDK, consent-based",-,Embedded in the bank's own app,10,not started
+P-062,2. Device & behaviour,Behavioural biometrics,INTEGRATE-VENDOR,Vendor adapter,-,,10,not started
+P-063,10. Cybersecurity & bank risk,SIEM alert ingestion,ADOPT-OSS,Wazuh API,GPL-2.0 / AGPL-3.0 (external service),API only,11,not started
+P-064,10. Cybersecurity & bank risk,Vulnerability findings ingestion,ADOPT-OSS,DefectDojo API,BSD-3-Clause,,11,not started
+P-065,10. Cybersecurity & bank risk,Incident register with CERT-In 6-hour workflow,BUILD,In-house on Temporal,MIT,Also models RBI six-hour reporting,11,not started
+P-066,10. Cybersecurity & bank risk,Third-party risk,BUILD,In-house,-,,11,not started
+P-067,10. Cybersecurity & bank risk,Control tracking mapped to RBI UCB framework,BUILD,In-house; control list TODO(verify) from RBI/DoS/2026-27/437,-,2019 framework appears withdrawn,11,not started
+P-068,11. Integrations,CBS connectors,BUILD,Adapter pattern + one synthetic reference adapter,-,,12,not started
+P-069,11. Integrations,Webhooks and notifications,BUILD,In-house,-,,12,not started
+P-070,12. Enterprise,Dashboards,BUILD,In-house,-,,12,not started
+P-071,12. Enterprise,Retention controls,BUILD,In-house,-,DPDP purpose tags and schedules,12,not started
+P-072,12. Enterprise,Usage analytics and licence management,BUILD,In-house,-,,12,not started

@@ -1,6 +1,8 @@
 # Event contracts
 
-JSON Schema (draft 2020-12). Every event is the envelope in `envelope.schema.json` with a typed
+JSON Schema (draft 2020-12). The schema files live in
+[`packages/sentinel_core/sentinel_core/schemas/events/`](../../packages/sentinel_core/sentinel_core/schemas/events/)
+so that the code validates every outgoing event against them. Every event is the envelope in `envelope.schema.json` with a typed
 `payload`. Rules are in `ARCHITECTURE.md` section 8.
 
 | Event type | Topic | Payload schema | Phase |

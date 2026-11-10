@@ -120,7 +120,7 @@ async def record_audit(
         text("UPDATE core.audit_chain_head SET sequence = :s, hash = :h WHERE tenant_id = :t"),
         {"s": sequence, "h": record_hash, "t": ctx.tenant_id},
     )
-    return sequence
+    return int(sequence)
 
 
 @dataclass(frozen=True)

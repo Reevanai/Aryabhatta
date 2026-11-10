@@ -138,40 +138,37 @@ async def test_anchor_detects_a_chain_rewritten_end_to_end(
     async with platform.db.tenant_tx(tenant.ctx()) as conn:
         assert await anchor_chain(conn, tenant.ctx(), key.key) == 4
 
-    async with owner_engine.connect() as conn:
-        async with conn.begin():
-            from sentinel_core.db import apply_context
+    async with owner_engine.connect() as conn, conn.begin():
+        from sentinel_core.db import apply_context
 
-            await apply_context(conn, tenant.ctx())
-            await conn.execute(text("ALTER TABLE core.audit_event DISABLE TRIGGER USER"))
-            rows = (
-                await conn.execute(text("SELECT * FROM core.audit_event ORDER BY sequence"))
-            ).all()
-            previous = GENESIS_HASH
-            for row in rows:
-                new_hash = canonical_hash(
-                    tenant_id=tenant.id,
-                    sequence=row.sequence,
-                    event_id=row.id,
-                    occurred_at=row.occurred_at,
-                    actor_id="rewritten",
-                    actor_type=row.actor_type,
-                    action=row.action,
-                    resource=row.resource,
-                    purpose=row.purpose,
-                    details=row.details,
-                    previous_hash=previous,
-                )
-                await conn.execute(
-                    text(
-                        "UPDATE core.audit_event SET actor_id = 'rewritten', previous_hash = :p, "
-                        "hash = :h WHERE sequence = :s"
-                    ),
-                    {"p": previous, "h": new_hash, "s": row.sequence},
-                )
-                previous = new_hash
-            await conn.execute(text("UPDATE core.audit_chain_head SET hash = :h"), {"h": previous})
-            await conn.execute(text("ALTER TABLE core.audit_event ENABLE TRIGGER USER"))
+        await apply_context(conn, tenant.ctx())
+        await conn.execute(text("ALTER TABLE core.audit_event DISABLE TRIGGER USER"))
+        rows = (await conn.execute(text("SELECT * FROM core.audit_event ORDER BY sequence"))).all()
+        previous = GENESIS_HASH
+        for row in rows:
+            new_hash = canonical_hash(
+                tenant_id=tenant.id,
+                sequence=row.sequence,
+                event_id=row.id,
+                occurred_at=row.occurred_at,
+                actor_id="rewritten",
+                actor_type=row.actor_type,
+                action=row.action,
+                resource=row.resource,
+                purpose=row.purpose,
+                details=row.details,
+                previous_hash=previous,
+            )
+            await conn.execute(
+                text(
+                    "UPDATE core.audit_event SET actor_id = 'rewritten', previous_hash = :p, "
+                    "hash = :h WHERE sequence = :s"
+                ),
+                {"p": previous, "h": new_hash, "s": row.sequence},
+            )
+            previous = new_hash
+        await conn.execute(text("UPDATE core.audit_chain_head SET hash = :h"), {"h": previous})
+        await conn.execute(text("ALTER TABLE core.audit_event ENABLE TRIGGER USER"))
 
     async with platform.db.tenant_tx(tenant.ctx()) as conn:
         result = await verify_chain(conn, tenant.ctx(), key.key)

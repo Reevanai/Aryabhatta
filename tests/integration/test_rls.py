@@ -1,9 +1,11 @@
 """Tenant isolation is enforced by the database for every table."""
 
 import pytest
+from sentinel_core.audit import anchor_chain
 from sentinel_core.context import TenantContext
+from sentinel_core.db import apply_context
 from sentinel_core.runtime import Platform
-from sentinel_ingestion.public import IngestionService
+from sentinel_ingestion.public import BatchService, IngestionService
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -82,7 +84,10 @@ async def test_application_role_has_no_direct_access_to_partitions(
 
 
 @pytest.fixture
-async def two_tenants(platform: Platform, tenant_factory: TenantFactory) -> tuple[Tenant, Tenant]:
+async def two_tenants(
+    platform: Platform, owner_engine: AsyncEngine, tenant_factory: TenantFactory
+) -> tuple[Tenant, Tenant]:
+    """Two tenants with at least one row in every tenant-scoped table."""
     tenants = (await tenant_factory(), await tenant_factory())
     service = IngestionService(platform)
     for tenant in tenants:
@@ -91,6 +96,19 @@ async def two_tenants(platform: Platform, tenant_factory: TenantFactory) -> tupl
         await service.ingest_rows(ctx, "accounts", [(1, account_row(1))], source="batch")
         await service.ingest_rows(ctx, "transactions", [(None, txn(1))], source="http")
         await service.ingest_rows(ctx, "parties", [(2, party_row(2, pan="bad"))], source="batch")
+        await BatchService(platform, service).create(ctx, "parties", b"customer_id\n")
+        key = await platform.keys.get(ctx, "audit")
+        async with platform.db.tenant_tx(ctx) as conn:
+            await anchor_chain(conn, ctx, key.key)
+        async with owner_engine.connect() as conn, conn.begin():
+            await apply_context(conn, ctx)
+            await conn.execute(
+                text(
+                    "INSERT INTO core.retention_policy (tenant_id, purpose_code, retain_days) "
+                    "VALUES (:t, 'kyc', 365)"
+                ),
+                {"t": tenant.id},
+            )
     return tenants
 
 
@@ -104,7 +122,7 @@ async def test_a_tenant_sees_only_its_own_rows_in_every_table(
             continue
         opener = platform.db.vault_tx if name.startswith("vault.") else platform.db.tenant_tx
         async with opener(tenant_a.ctx()) as conn:
-            rows = (await conn.execute(text(f"SELECT tenant_id FROM {name}"))).all()  # noqa: S608
+            rows = (await conn.execute(text(f"SELECT tenant_id FROM {name}"))).all()
         assert rows, f"{name} has no rows for the tenant; the isolation check would prove nothing"
         assert {r.tenant_id for r in rows} == {tenant_a.id}, name
         assert tenant_b.id not in {r.tenant_id for r in rows}
@@ -122,7 +140,7 @@ async def test_a_session_without_a_tenant_sees_nothing(
             "ingestion.transaction",
             "core.audit_event",
         ):
-            count = (await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()  # noqa: S608
+            count = (await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()
             assert count == 0, table
 
 
@@ -221,7 +239,7 @@ async def test_branch_scoped_sessions_see_only_their_branches(
             ("ingestion.transaction", "branch_id"),
             ("core.branch", "id"),
         ):
-            seen = {r[0] for r in await conn.execute(text(f"SELECT {column} FROM {table}"))}  # noqa: S608
+            seen = {r[0] for r in await conn.execute(text(f"SELECT {column} FROM {table}"))}
             assert seen == {tenant.branches["BR001"]}, table
     async with platform.db.tenant_tx(ctx) as conn:
         total = (
