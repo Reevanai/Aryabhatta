@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from sentinel_ingestion.domain.models import (
     AccountRow,
     Dataset,
+    DeviceRow,
+    LoanRow,
     PartyRow,
     RowError,
     TransactionInput,
@@ -92,6 +94,10 @@ class IngestionService:
             await self._parties(ctx, rows, chunk)
         elif dataset == "accounts":
             await self._accounts(ctx, rows, chunk)
+        elif dataset == "loans":
+            await self._loans(ctx, rows, chunk)
+        elif dataset == "devices":
+            await self._devices(ctx, rows, chunk)
         else:
             await self._transactions(ctx, rows, chunk, flat_transactions)
         if chunk.rejected:
@@ -248,6 +254,130 @@ class IngestionService:
                     unique,
                 )
             chunk.counts.loaded += len(params)
+
+    # Loans ------------------------------------------------------------------------
+
+    async def _loans(
+        self, ctx: TenantContext, rows: Sequence[tuple[int | None, dict[str, Any]]], chunk: _Chunk
+    ) -> None:
+        valid: list[tuple[int | None, dict[str, Any], LoanRow]] = []
+        for number, raw in rows:
+            try:
+                valid.append((number, raw, LoanRow.model_validate(raw)))
+            except ValidationError as exc:
+                chunk.reject(number, raw, *safe_errors(exc))
+        if not valid:
+            return
+        tokens = await self._p.tokeniser.tokenise_many(
+            ctx,
+            [
+                pair
+                for _, _, r in valid
+                for pair in (("acct", r.account_number), ("cust", r.customer_id))
+            ],
+        )
+        async with self._p.db.tenant_tx(ctx) as conn:
+            accounts = await _accounts_by_token(conn, tokens[0::2])
+            parties = await _party_ids(conn, tokens[1::2])
+            params: dict[str, dict[str, Any]] = {}
+            for index, (number, raw, row) in enumerate(valid):
+                account = accounts.get(tokens[index * 2])
+                party_id = parties.get(tokens[index * 2 + 1])
+                errors = []
+                if party_id is None:
+                    errors.append(_ref_error("customer_id", "unknown customer"))
+                if account is None:
+                    errors.append(_ref_error("account_number", "unknown account"))
+                elif party_id is not None and account.party_token != tokens[index * 2 + 1]:
+                    errors.append(
+                        _ref_error("account_number", "account belongs to another customer")
+                    )
+                if errors or account is None:
+                    chunk.reject(number, raw, *errors)
+                    continue
+                params[row.loan_id] = {
+                    "id": uuid7(),
+                    "t": ctx.tenant_id,
+                    "b": account.branch_id,
+                    "ref": row.loan_id,
+                    "p": party_id,
+                    "a": account.id,
+                    "product": row.product,
+                    "principal": row.principal,
+                    "rate": row.annual_interest_rate,
+                    "tenure": row.tenure_months,
+                    "disbursed": row.disbursed_on,
+                    "emi": row.emi_amount,
+                    "status": row.status,
+                    "dpd": row.days_past_due,
+                    "cur": row.currency,
+                }
+                chunk.counts.loaded += 1
+            if params:
+                await conn.execute(
+                    text(
+                        "INSERT INTO ingestion.loan (id, tenant_id, branch_id, loan_ref, party_id, "
+                        "account_id, product, principal, annual_interest_rate, tenure_months, "
+                        "disbursed_on, emi_amount, status, days_past_due, currency) VALUES (:id, :t, :b, "
+                        ":ref, :p, :a, :product, :principal, :rate, :tenure, :disbursed, :emi, :status, "
+                        ":dpd, :cur) ON CONFLICT (tenant_id, loan_ref) DO UPDATE SET "
+                        "status = EXCLUDED.status, days_past_due = EXCLUDED.days_past_due, "
+                        "emi_amount = EXCLUDED.emi_amount, principal = EXCLUDED.principal, "
+                        "annual_interest_rate = EXCLUDED.annual_interest_rate, "
+                        "tenure_months = EXCLUDED.tenure_months, updated_at = now()"
+                    ),
+                    list(params.values()),
+                )
+
+    # Devices ----------------------------------------------------------------------
+
+    async def _devices(
+        self, ctx: TenantContext, rows: Sequence[tuple[int | None, dict[str, Any]]], chunk: _Chunk
+    ) -> None:
+        valid: list[tuple[int | None, dict[str, Any], DeviceRow]] = []
+        for number, raw in rows:
+            try:
+                valid.append((number, raw, DeviceRow.model_validate(raw)))
+            except ValidationError as exc:
+                chunk.reject(number, raw, *safe_errors(exc))
+        if not valid:
+            return
+        tokens = await self._p.tokeniser.tokenise_many(
+            ctx,
+            [pair for _, _, r in valid for pair in (("dev", r.device_id), ("cust", r.customer_id))],
+        )
+        async with self._p.db.tenant_tx(ctx) as conn:
+            parties = await _party_ids(conn, tokens[1::2])
+            params: dict[tuple[str, Any], dict[str, Any]] = {}
+            for index, (number, raw, row) in enumerate(valid):
+                party_id = parties.get(tokens[index * 2 + 1])
+                if party_id is None:
+                    chunk.reject(number, raw, _ref_error("customer_id", "unknown customer"))
+                    continue
+                params[(tokens[index * 2], party_id)] = {
+                    "id": uuid7(),
+                    "t": ctx.tenant_id,
+                    "d": tokens[index * 2],
+                    "p": party_id,
+                    "platform": row.platform,
+                    "os": row.os_version,
+                    "rooted": row.rooted,
+                    "seen": row.first_seen,
+                }
+                chunk.counts.loaded += 1
+            if params:
+                await conn.execute(
+                    text(
+                        "INSERT INTO ingestion.device_link (id, tenant_id, device_token, party_id, "
+                        "platform, os_version, rooted, first_seen) VALUES (:id, :t, :d, :p, :platform, "
+                        ":os, :rooted, :seen) ON CONFLICT (tenant_id, device_token, party_id) DO UPDATE "
+                        "SET platform = EXCLUDED.platform, os_version = EXCLUDED.os_version, "
+                        "rooted = EXCLUDED.rooted, "
+                        "first_seen = LEAST(ingestion.device_link.first_seen, EXCLUDED.first_seen), "
+                        "updated_at = now()"
+                    ),
+                    list(params.values()),
+                )
 
     # Transactions -----------------------------------------------------------------
 

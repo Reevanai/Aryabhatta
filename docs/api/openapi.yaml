@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Sentinel API
-  version: 0.2.0
+  version: 0.3.0
   summary: Fraud, AML and cyber-risk platform API
   description: |
     Phase 2 operations are implemented. Later phases are contract only.
@@ -210,8 +210,8 @@ paths:
               properties:
                 dataset:
                   type: string
-                  enum: [parties, accounts, transactions]
-                  description: Loans and devices are added with the synthetic data generator (Phase 3).
+                  enum: [parties, accounts, loans, devices, transactions]
+                  description: Load in this order; each data set refers to the ones before it.
                 file:
                   type: string
                   format: binary

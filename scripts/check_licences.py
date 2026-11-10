@@ -28,6 +28,7 @@ REVIEWED: dict[str, str] = {
     "sentinel-ingestion": "Proprietary (this project)",
     "sentinel-api": "Proprietary (this project)",
     "sentinel-ingest": "Proprietary (this project)",
+    "sentinel-synth": "Proprietary (this project)",
 }
 
 

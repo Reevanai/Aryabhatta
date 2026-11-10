@@ -5,6 +5,7 @@ data and the messages are stored and shown in clear.
 """
 
 import ipaddress
+import json
 import re
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -20,8 +21,9 @@ from pydantic import (
     model_validator,
 )
 
-Dataset = Literal["parties", "accounts", "transactions"]
-DATASETS: tuple[Dataset, ...] = ("parties", "accounts", "transactions")
+Dataset = Literal["parties", "accounts", "loans", "devices", "transactions"]
+# In the order they must be loaded: each depends on the ones before it.
+DATASETS: tuple[Dataset, ...] = ("parties", "accounts", "loans", "devices", "transactions")
 
 Channel = Literal[
     "upi", "imps", "neft", "rtgs", "card", "cash", "cheque", "aeps", "internal", "other"
@@ -111,6 +113,67 @@ class AccountRow(_Row):
         return v
 
 
+class LoanRow(_Row):
+    loan_id: str = Field(min_length=1, max_length=64)
+    customer_id: str = Field(min_length=1, max_length=64)
+    account_number: str = Field(min_length=1, max_length=64)
+    product: Literal[
+        "gold", "personal", "two_wheeler", "agri_kcc", "msme", "housing", "vehicle", "other"
+    ]
+    principal: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    annual_interest_rate: Decimal = Field(ge=0, le=100, max_digits=6, decimal_places=3)
+    tenure_months: int = Field(ge=1, le=480)
+    disbursed_on: date
+    emi_amount: Annotated[
+        Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=2)] | None, Optional_
+    ] = None
+    status: Literal["active", "closed", "overdue", "written_off"]
+    days_past_due: int = Field(default=0, ge=0)
+    currency: str = "INR"
+
+    @field_validator("currency")
+    @classmethod
+    def _currency(cls, v: str) -> str:
+        if not _CURRENCY.match(v):
+            raise ValueError("must be a three-letter currency code")
+        return v
+
+    @field_validator("disbursed_on")
+    @classmethod
+    def _not_future(cls, v: date) -> date:
+        if v > datetime.now(UTC).date():
+            raise ValueError("must not be in the future")
+        return v
+
+    @model_validator(mode="after")
+    def _arrears_match_status(self) -> "LoanRow":
+        if self.days_past_due > 0 and self.status in {"active", "closed"}:
+            raise ValueError("a loan with days past due must be overdue or written off")
+        if self.status == "overdue" and self.days_past_due == 0:
+            raise ValueError("an overdue loan needs days past due")
+        return self
+
+
+class DeviceRow(_Row):
+    """One customer's use of one device. A device may appear once per customer."""
+
+    device_id: str = Field(min_length=1, max_length=255)
+    customer_id: str = Field(min_length=1, max_length=64)
+    platform: Literal["android", "ios", "web", "other"]
+    os_version: Annotated[Annotated[str, Field(max_length=32)] | None, Optional_] = None
+    rooted: bool = False
+    first_seen: datetime
+
+    @field_validator("first_seen")
+    @classmethod
+    def _first_seen(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
+            raise ValueError("must include a time zone")
+        if v > datetime.now(UTC) + MAX_FUTURE:
+            raise ValueError("must not be more than one day in the future")
+        return v.astimezone(UTC)
+
+
 class Money(_Row):
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     currency: str = "INR"
@@ -179,13 +242,23 @@ class TransactionInput(_Row):
         return self
 
 
-_TXN_FLAT = {"amount", "currency"}
+_TXN_FLAT = {"amount", "currency", "attributes"}
 
 
 def transaction_from_csv(row: dict[str, str]) -> TransactionInput:
-    """Build a transaction from a flat CSV row (amount and currency as columns)."""
+    """Build a transaction from a flat CSV row.
+
+    Amount and currency are separate columns; `attributes`, if present, is a JSON object.
+    """
     data: dict[str, Any] = {k: v for k, v in row.items() if k not in _TXN_FLAT}
     data["amount"] = {"amount": row.get("amount", ""), "currency": row.get("currency") or "INR"}
+    raw_attributes = (row.get("attributes") or "").strip()
+    if raw_attributes:
+        try:
+            data["attributes"] = json.loads(raw_attributes)
+        except ValueError:
+            # Let validation report it against the field, without echoing the content.
+            data["attributes"] = "not a JSON object"
     return TransactionInput.model_validate(data)
 
 

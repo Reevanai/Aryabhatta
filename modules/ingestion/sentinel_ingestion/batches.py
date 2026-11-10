@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel
 from sentinel_core.audit import record_audit
 from sentinel_core.context import TenantContext
 from sentinel_core.errors import Invalid, NotFound, TooLarge
@@ -16,7 +17,14 @@ from sentinel_core.logging import get_logger
 from sentinel_core.runtime import Platform
 from sqlalchemy import text
 
-from sentinel_ingestion.domain.models import DATASETS, AccountRow, Dataset, PartyRow
+from sentinel_ingestion.domain.models import (
+    DATASETS,
+    AccountRow,
+    Dataset,
+    DeviceRow,
+    LoanRow,
+    PartyRow,
+)
 from sentinel_ingestion.service import Counts, IngestionService
 
 log = get_logger(__name__)
@@ -25,6 +33,7 @@ MAX_ATTEMPTS = 3
 STALE_CLAIM = "10 minutes"
 
 _TRANSACTION_COLUMNS = {
+    "attributes",
     "source_reference",
     "channel",
     "direction",
@@ -51,11 +60,19 @@ _TRANSACTION_REQUIRED = {
 }
 
 
+_ROW_MODELS: dict[str, type[BaseModel]] = {
+    "parties": PartyRow,
+    "accounts": AccountRow,
+    "loans": LoanRow,
+    "devices": DeviceRow,
+}
+
+
 def _columns(dataset: Dataset) -> tuple[set[str], set[str]]:
     """(allowed, required) column names for a dataset's CSV."""
     if dataset == "transactions":
         return _TRANSACTION_COLUMNS, _TRANSACTION_REQUIRED
-    model = PartyRow if dataset == "parties" else AccountRow
+    model = _ROW_MODELS[dataset]
     allowed = set(model.model_fields)
     required = {name for name, info in model.model_fields.items() if info.is_required()}
     return allowed, required

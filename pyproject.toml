@@ -3,7 +3,7 @@ name = "sentinel-workspace"
 version = "0.2.0"
 description = "Sentinel: fraud, AML and cyber-risk platform (workspace root)"
 requires-python = ">=3.12,<3.13"
-dependencies = ["sentinel-core", "sentinel-ingestion", "sentinel-api", "sentinel-ingest"]
+dependencies = ["sentinel-core", "sentinel-ingestion", "sentinel-api", "sentinel-ingest", "sentinel-synth"]
 
 [dependency-groups]
 dev = [
@@ -19,13 +19,14 @@ package = false
 entrypoint = "app:app"
 
 [tool.uv.workspace]
-members = ["packages/sentinel_core", "modules/ingestion", "apps/api", "apps/ingest"]
+members = ["packages/sentinel_core", "modules/ingestion", "modules/synth", "apps/api", "apps/ingest"]
 
 [tool.uv.sources]
 sentinel-core = { workspace = true }
 sentinel-ingestion = { workspace = true }
 sentinel-api = { workspace = true }
 sentinel-ingest = { workspace = true }
+sentinel-synth = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -39,6 +40,8 @@ ignore = ["S101", "E501"]
 # Tests build SQL from fixed table names and wrap async blocks in pytest.raises.
 "tests/**" = ["S105", "S106", "S311", "S608", "PT012", "ASYNC110"]
 "scripts/**" = ["S311", "S105", "S106"]
+# The generator is a seeded simulation; cryptographic randomness would defeat reproducibility.
+"modules/synth/**" = ["S311"]
 # batches.py interpolates only module-level column-list constants into SQL, never input.
 "modules/ingestion/sentinel_ingestion/batches.py" = ["S608"]
 
@@ -48,7 +51,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 files = ["packages", "modules", "apps", "tests", "scripts", "app.py"]
 explicit_package_bases = true
-mypy_path = ["packages/sentinel_core", "modules/ingestion", "apps/api", "apps/ingest"]
+mypy_path = ["packages/sentinel_core", "modules/ingestion", "modules/synth", "apps/api", "apps/ingest"]
 
 [[tool.mypy.overrides]]
 module = ["aiokafka.*", "jsonschema.*"]
@@ -68,7 +71,7 @@ addopts = "-ra --strict-markers"
 
 [tool.coverage.run]
 branch = true
-source = ["sentinel_core", "sentinel_ingestion", "sentinel_api", "sentinel_ingest"]
+source = ["sentinel_core", "sentinel_ingestion", "sentinel_api", "sentinel_ingest", "sentinel_synth"]
 omit = ["*/migrations/*"]
 
 [tool.coverage.report]
@@ -76,7 +79,7 @@ show_missing = true
 skip_covered = true
 
 [tool.importlinter]
-root_packages = ["sentinel_core", "sentinel_ingestion", "sentinel_api", "sentinel_ingest"]
+root_packages = ["sentinel_core", "sentinel_ingestion", "sentinel_api", "sentinel_ingest", "sentinel_synth"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
@@ -106,3 +109,12 @@ name = "Ingestion domain has no I/O dependencies"
 type = "forbidden"
 source_modules = ["sentinel_ingestion.domain"]
 forbidden_modules = ["sqlalchemy", "fastapi", "aiokafka", "httpx", "sentinel_core.db"]
+
+[[tool.importlinter.contracts]]
+name = "The generator is standalone: no platform, database or web imports"
+type = "forbidden"
+source_modules = ["sentinel_synth"]
+forbidden_modules = [
+  "sentinel_core", "sentinel_ingestion", "sentinel_api", "sentinel_ingest",
+  "sqlalchemy", "fastapi", "aiokafka", "httpx",
+]

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Phase 3 — synthetic data generator (2026-11-10)
+Built and tested:
+- `modules/synth`: deterministic generator for a co-operative bank or an NBFC, with nine labelled
+  fraud scenarios, five labelled look-alikes, and unlabelled look-alike background behaviour.
+- Ingestion of loans and devices (migration 0002), and a JSON `attributes` column for
+  transaction files.
+- `make seed` and `make demo` now use generated data; `make baseline` measures naive rules
+  against the labels. The hand-written `examples/` data set is removed.
+
+Found and fixed by tests during the phase: label words leaking into generated payee names;
+cash-out that left most of a fraudulent loan in the account.
+
+Measured: 262 tests, 95% coverage; `demo` profile generated in 2.9 s and loaded in about 100 s
+with nothing quarantined; naive-rule baseline in `modules/synth/README.md`.
+
 ### Phase 2 — platform core (2026-11-10)
 Built and tested:
 - Tenancy (bank → branch) with forced row-level security on every tenant table; branch scope.

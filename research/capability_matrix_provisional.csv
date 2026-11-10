@@ -7,7 +7,7 @@ P-005,Platform core,Batch CSV ingestion,BUILD,In-house + Pydantic,MIT,Per-row er
 P-006,Platform core,Streaming event ingestion,ADOPT-OSS,"Kafka API (Redpanda dev, Apache Kafka prod)",BSL dev / Apache-2.0 prod,Code to the protocol; ship only Apache-licensed broker,2,built (phase 2)
 P-007,Platform core,Data validation and quarantine,BUILD,In-house + Pydantic,MIT,,2,built (phase 2)
 P-008,Platform core,PII tokenisation,BUILD,In-house + Presidio for free text,MIT,Deterministic per-tenant tokens are product-specific,2,built (phase 2)
-P-009,Platform core,Synthetic data generator with labelled fraud,BUILD,In-house,-,AMLSim and PaySim do not model Indian rails; PaySim is GPL,3,not started
+P-009,Platform core,Synthetic data generator with labelled fraud,BUILD,In-house,-,AMLSim and PaySim do not model Indian rails; PaySim is GPL,3,built (phase 3)
 P-010,3. Transaction fraud,Rule engine with no-code configuration,BUILD,In-house; evaluate GoRules Zen as evaluator,MIT (Zen),"Marble is Elastic 2.0, Jube AGPL, Tazama a different stack",4,not started
 P-011,3. Transaction fraud,Versioned rules with dry-run and backtest,BUILD,In-house,-,Depends on our event store,4,not started
 P-012,3. Transaction fraud,Velocity checks,BUILD,In-house,-,,4,not started

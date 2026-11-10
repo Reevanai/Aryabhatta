@@ -83,3 +83,42 @@ def flat_txn(n: int, account: int = 1, **over: str) -> dict[str, str]:
     }
     row.update(over)
     return row
+
+
+LOAN_HEADER = (
+    "loan_id,customer_id,account_number,product,principal,annual_interest_rate,tenure_months,"
+    "disbursed_on,emi_amount,status,days_past_due,currency"
+)
+DEVICE_HEADER = "device_id,customer_id,platform,os_version,rooted,first_seen"
+
+
+def loan_row(n: int, **over: str) -> dict[str, str]:
+    row = {
+        "loan_id": f"LN{n:06d}",
+        "customer_id": f"CUST{n:05d}",
+        "account_number": f"00112233{n:06d}",
+        "product": "personal",
+        "principal": "150000.00",
+        "annual_interest_rate": "14.50",
+        "tenure_months": "24",
+        "disbursed_on": "2025-03-10",
+        "emi_amount": "7240.00",
+        "status": "active",
+        "days_past_due": "0",
+        "currency": "INR",
+    }
+    row.update(over)
+    return row
+
+
+def device_row(n: int, customer: int | None = None, **over: str) -> dict[str, str]:
+    row = {
+        "device_id": f"device-{n}",
+        "customer_id": f"CUST{(customer or n):05d}",
+        "platform": "android",
+        "os_version": "14",
+        "rooted": "false",
+        "first_seen": "2025-06-01T09:30:00+05:30",
+    }
+    row.update(over)
+    return row

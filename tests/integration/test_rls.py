@@ -11,7 +11,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tests.conftest import Tenant, TenantFactory
-from tests.synthetic import account_row, party_row, txn
+from tests.synthetic import account_row, device_row, loan_row, party_row, txn
 
 pytestmark = pytest.mark.integration
 
@@ -94,6 +94,8 @@ async def two_tenants(
         ctx = tenant.ctx()
         await service.ingest_rows(ctx, "parties", [(1, party_row(1))], source="batch")
         await service.ingest_rows(ctx, "accounts", [(1, account_row(1))], source="batch")
+        await service.ingest_rows(ctx, "loans", [(1, loan_row(1))], source="batch")
+        await service.ingest_rows(ctx, "devices", [(1, device_row(1))], source="batch")
         await service.ingest_rows(ctx, "transactions", [(None, txn(1))], source="http")
         await service.ingest_rows(ctx, "parties", [(2, party_row(2, pan="bad"))], source="batch")
         await BatchService(platform, service).create(ctx, "parties", b"customer_id\n")
@@ -127,7 +129,7 @@ async def test_a_tenant_sees_only_its_own_rows_in_every_table(
         assert {r.tenant_id for r in rows} == {tenant_a.id}, name
         assert tenant_b.id not in {r.tenant_id for r in rows}
         checked += 1
-    assert checked >= 12
+    assert checked >= 14
 
 
 async def test_a_session_without_a_tenant_sees_nothing(
@@ -227,6 +229,7 @@ async def test_branch_scoped_sessions_see_only_their_branches(
         [(1, account_row(1, "BR001")), (2, account_row(2, "BR002"))],
         source="batch",
     )
+    await service.ingest_rows(ctx, "loans", [(1, loan_row(1)), (2, loan_row(2))], source="batch")
     await service.ingest_rows(
         ctx, "transactions", [(None, txn(1, account=1)), (None, txn(2, account=2))], source="http"
     )
@@ -235,6 +238,7 @@ async def test_branch_scoped_sessions_see_only_their_branches(
     )
     async with platform.db.tenant_tx(scoped) as conn:
         for table, column in (
+            ("ingestion.loan", "branch_id"),
             ("ingestion.account", "branch_id"),
             ("ingestion.transaction", "branch_id"),
             ("core.branch", "id"),

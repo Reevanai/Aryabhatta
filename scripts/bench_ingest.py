@@ -15,11 +15,15 @@ import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from demo import API, token  # type: ignore[import-not-found]
+from demo import API, DATA, token  # type: ignore[import-not-found]
 
 
 def build(rows: int, run_id: str) -> bytes:
     rng = random.Random(run_id)
+    with (DATA / "accounts.csv").open(encoding="utf-8") as handle:
+        accounts = [
+            a["account_number"] for a in csv.DictReader(handle) if a["product_type"] != "loan"
+        ]
     now = datetime.now(UTC)
     out = io.StringIO()
     writer = csv.writer(out)
@@ -47,7 +51,7 @@ def build(rows: int, run_id: str) -> bytes:
                 f"{rng.randrange(1, 50000)}.{rng.randrange(100):02d}",
                 "INR",
                 (now - timedelta(seconds=rng.randrange(0, 86400 * 20))).isoformat(),
-                f"5010{rng.randrange(1, 261):010d}",
+                rng.choice(accounts),
                 f"payee{rng.randrange(2000)}@demobank",
                 f"device-{rng.randrange(500):04d}",
                 f"203.0.113.{rng.randrange(1, 255)}",

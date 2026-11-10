@@ -1,0 +1,16 @@
+[project]
+name = "sentinel-synth"
+version = "0.3.0"
+description = "Sentinel synthetic data generator"
+requires-python = ">=3.12,<3.13"
+dependencies = ["pydantic>=2.9"]
+
+[project.scripts]
+sentinel-synth = "sentinel_synth.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sentinel_synth"]

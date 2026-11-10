@@ -1,6 +1,6 @@
 # ingestion
 
-Takes parties, accounts and transactions from a bank, validates them, replaces personal data with
+Takes parties, accounts, loans, devices and transactions from a bank, validates them, replaces personal data with
 tokens, stores canonical records, and emits `ingestion.transaction.received` events.
 
 ## Inputs
@@ -12,15 +12,16 @@ tokens, stores canonical records, and emits `ingestion.transaction.received` eve
 | Stream | Kafka topic `sentinel.intake.transaction.v1`: one transaction as JSON per message, header `tenant_id`. |
 
 CSV columns are the field names of `PartyRow`, `AccountRow` and `TransactionInput` in
-`domain/models.py` (transactions use flat `amount` and `currency` columns). Load parties before
-accounts and accounts before transactions.
+`domain/models.py`. Transactions use flat `amount` and `currency` columns and an optional
+`attributes` column holding a flat JSON object. Load in this order: parties, accounts, loans,
+devices, transactions.
 
 ## What happens to a row
 
 1. **Validate** against the model. Each rule has a unit test.
 2. **Check references**: the customer, branch and account must exist.
 3. **Tokenise** identifiers; clear values go to the vault, encrypted.
-4. **Store**. Parties and accounts are upserted. Transactions are idempotent on
+4. **Store**. Parties, accounts, loans and device links are upserted. Transactions are idempotent on
    `source_reference`: a repeat is counted as a duplicate and ignored.
 5. **Emit** one event per new transaction through the outbox.
 
@@ -42,13 +43,15 @@ with five tokenised fields each:
 |------|--------|
 | 20,000 rows | 13.7 s, about 1,460 rows/s |
 | 50,000 rows | 33.9 s, about 1,470 rows/s |
+| 122,125 rows (generated `demo` data set) | 92.9 s, about 1,310 rows/s |
 
 Reproduce with `uv run python scripts/bench_ingest.py 50000` after `make seed`.
 
+A loan's `loan_id` is stored as given, like a transaction's reference: it is a record key, not
+personal data.
+
 ## Limits
 
-- **Datasets: parties, accounts, transactions.** Loans and devices arrive with the synthetic data
-  generator in Phase 3.
 - **Only `ingestion.transaction.received` is emitted.** `party.upserted` and `account.upserted`
   are added when the graph module needs them (Phase 6).
 - **Entity-resolution comparison keys are not produced yet** (Phase 6).

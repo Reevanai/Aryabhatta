@@ -8,6 +8,7 @@ members = [
     "sentinel-core",
     "sentinel-ingest",
     "sentinel-ingestion",
+    "sentinel-synth",
     "sentinel-workspace",
 ]
 
@@ -1041,6 +1042,17 @@ requires-dist = [
 ]
 
 [[package]]
+name = "sentinel-synth"
+version = "0.3.0"
+source = { editable = "modules/synth" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.9" }]
+
+[[package]]
 name = "sentinel-workspace"
 version = "0.2.0"
 source = { virtual = "." }
@@ -1049,6 +1061,7 @@ dependencies = [
     { name = "sentinel-core" },
     { name = "sentinel-ingest" },
     { name = "sentinel-ingestion" },
+    { name = "sentinel-synth" },
 ]
 
 [package.dev-dependencies]
@@ -1072,6 +1085,7 @@ requires-dist = [
     { name = "sentinel-core", editable = "packages/sentinel_core" },
     { name = "sentinel-ingest", editable = "apps/ingest" },
     { name = "sentinel-ingestion", editable = "modules/ingestion" },
+    { name = "sentinel-synth", editable = "modules/synth" },
 ]
 
 [package.metadata.requires-dev]

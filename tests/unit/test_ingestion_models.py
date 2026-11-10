@@ -7,13 +7,15 @@ import pytest
 from pydantic import ValidationError
 from sentinel_ingestion.domain.models import (
     AccountRow,
+    DeviceRow,
+    LoanRow,
     PartyRow,
     TransactionInput,
     safe_errors,
     transaction_from_csv,
 )
 
-from tests.synthetic import account_row, flat_txn, party_row, txn
+from tests.synthetic import account_row, device_row, flat_txn, loan_row, party_row, txn
 
 
 def errors_for(model: Any, data: dict[str, Any]) -> dict[str, str]:
@@ -117,6 +119,84 @@ def test_account_requires_references() -> None:
     assert {"account_number", "customer_id", "branch_code"} <= set(found)
 
 
+# Loans -----------------------------------------------------------------------------------
+
+
+def test_valid_loan() -> None:
+    loan = LoanRow.model_validate(loan_row(1))
+    assert str(loan.principal) == "150000.00"
+    assert LoanRow.model_validate(loan_row(1, emi_amount="")).emi_amount is None
+
+
+def test_loan_product_and_status_are_restricted() -> None:
+    assert "product" in errors_for(LoanRow, loan_row(1, product="payday"))
+    assert "status" in errors_for(LoanRow, loan_row(1, status="fine"))
+
+
+@pytest.mark.parametrize("principal", ["0", "-1", "abc", "10.005"])
+def test_loan_principal_rules(principal: str) -> None:
+    assert "principal" in errors_for(LoanRow, loan_row(1, principal=principal))
+
+
+@pytest.mark.parametrize("rate", ["-1", "100.5", "x"])
+def test_loan_interest_rate_range(rate: str) -> None:
+    assert "annual_interest_rate" in errors_for(LoanRow, loan_row(1, annual_interest_rate=rate))
+
+
+@pytest.mark.parametrize("tenure", ["0", "481", "2.5"])
+def test_loan_tenure_range(tenure: str) -> None:
+    assert "tenure_months" in errors_for(LoanRow, loan_row(1, tenure_months=tenure))
+
+
+def test_loan_disbursal_date_must_not_be_in_the_future() -> None:
+    future = (datetime.now(UTC) + timedelta(days=3)).date().isoformat()
+    assert "disbursed_on" in errors_for(LoanRow, loan_row(1, disbursed_on=future))
+
+
+def test_loan_arrears_must_agree_with_status() -> None:
+    assert "row" in errors_for(LoanRow, loan_row(1, status="active", days_past_due="30"))
+    assert "row" in errors_for(LoanRow, loan_row(1, status="closed", days_past_due="5"))
+    assert "row" in errors_for(LoanRow, loan_row(1, status="overdue", days_past_due="0"))
+    LoanRow.model_validate(loan_row(1, status="overdue", days_past_due="45"))
+    LoanRow.model_validate(loan_row(1, status="written_off", days_past_due="0"))
+    assert "days_past_due" in errors_for(LoanRow, loan_row(1, days_past_due="-1"))
+
+
+def test_loan_requires_references() -> None:
+    found = errors_for(LoanRow, loan_row(1, loan_id="", customer_id="", account_number=""))
+    assert {"loan_id", "customer_id", "account_number"} <= set(found)
+
+
+# Devices ---------------------------------------------------------------------------------
+
+
+def test_valid_device_is_normalised_to_utc() -> None:
+    device = DeviceRow.model_validate(device_row(1))
+    assert device.first_seen == datetime(2025, 6, 1, 4, 0, tzinfo=UTC)
+    assert device.rooted is False
+    assert DeviceRow.model_validate(device_row(1, rooted="true", os_version="")).os_version is None
+
+
+def test_device_platform_is_restricted() -> None:
+    assert "platform" in errors_for(DeviceRow, device_row(1, platform="toaster"))
+
+
+def test_device_first_seen_needs_a_zone_and_must_not_be_in_the_future() -> None:
+    assert "first_seen" in errors_for(DeviceRow, device_row(1, first_seen="2025-06-01T09:30:00"))
+    future = (datetime.now(UTC) + timedelta(days=3)).isoformat()
+    assert "first_seen" in errors_for(DeviceRow, device_row(1, first_seen=future))
+
+
+def test_device_rooted_must_be_a_boolean() -> None:
+    assert "rooted" in errors_for(DeviceRow, device_row(1, rooted="perhaps"))
+
+
+def test_device_requires_ids() -> None:
+    assert {"device_id", "customer_id"} <= set(
+        errors_for(DeviceRow, device_row(1, device_id="", customer_id=""))
+    )
+
+
 # Transactions --------------------------------------------------------------------------
 
 
@@ -187,6 +267,19 @@ def test_flat_csv_row_is_converted() -> None:
     assert str(parsed.amount.amount) == "2500.50"
     assert parsed.amount.currency == "INR"
     assert parsed.device_id is None
+
+
+def test_flat_csv_attributes_column_is_parsed_as_json() -> None:
+    parsed = transaction_from_csv({**flat_txn(1), "attributes": '{"utr": "U1", "n": 2}'})
+    assert parsed.attributes == {"utr": "U1", "n": 2}
+    assert transaction_from_csv({**flat_txn(1), "attributes": ""}).attributes == {}
+
+
+@pytest.mark.parametrize("bad", ["{not json", "[1, 2]", '{"nested": {"a": 1}}'])
+def test_flat_csv_attributes_must_be_a_flat_json_object(bad: str) -> None:
+    with pytest.raises(ValidationError) as caught:
+        transaction_from_csv({**flat_txn(1), "attributes": bad})
+    assert any(e.field.startswith("attributes") for e in safe_errors(caught.value))
 
 
 def test_flat_csv_row_with_missing_amount_is_an_error() -> None:
