@@ -11,11 +11,24 @@ from sentinel_core.runtime import Platform, build_platform
 from sentinel_core.web import install_error_handlers
 from sentinel_ingestion.public import BatchService, IngestionService
 from sentinel_ingestion.public import router as ingestion_router
+from sentinel_txn_fraud.public import (
+    BacktestService,
+    RuleService,
+    ScoringService,
+    StateStore,
+    build_state,
+    score_router,
+)
+from sentinel_txn_fraud.public import router as txn_fraud_router
 
 from sentinel_api.platform_routes import router as platform_router
 
 
-def create_app(platform: Platform | None = None, jwks: JwksProvider | None = None) -> FastAPI:
+def create_app(
+    platform: Platform | None = None,
+    jwks: JwksProvider | None = None,
+    state: StateStore | None = None,
+) -> FastAPI:
     owns_platform = platform is None
 
     @asynccontextmanager
@@ -30,7 +43,7 @@ def create_app(platform: Platform | None = None, jwks: JwksProvider | None = Non
         platform = build_platform(settings)
     app = FastAPI(
         title="Sentinel API",
-        version="0.2.0",
+        version="0.4.0",
         lifespan=lifespan,
         docs_url="/v1/docs",
         openapi_url="/v1/openapi.json",
@@ -43,9 +56,16 @@ def create_app(platform: Platform | None = None, jwks: JwksProvider | None = Non
     ingestion = IngestionService(platform)
     app.state.ingestion = ingestion
     app.state.batches = BatchService(platform, ingestion)
+    rules = RuleService(platform)
+    app.state.rules = rules
+    app.state.backtests = BacktestService(platform, rules)
+    app.state.scoring = ScoringService(platform, state or build_state(platform.settings), rules)
     install_error_handlers(app)
     app.include_router(platform_router, prefix="/v1")
     app.include_router(ingestion_router, prefix="/v1")
+    app.include_router(txn_fraud_router, prefix="/v1")
+    # Also served here so a small installation can run one process; `apps/scorer` serves it alone.
+    app.include_router(score_router, prefix="/v1")
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

@@ -8,7 +8,9 @@ members = [
     "sentinel-core",
     "sentinel-ingest",
     "sentinel-ingestion",
+    "sentinel-scorer",
     "sentinel-synth",
+    "sentinel-txn-fraud",
     "sentinel-workspace",
 ]
 
@@ -966,6 +968,7 @@ source = { editable = "apps/api" }
 dependencies = [
     { name = "sentinel-core" },
     { name = "sentinel-ingestion" },
+    { name = "sentinel-txn-fraud" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -973,6 +976,7 @@ dependencies = [
 requires-dist = [
     { name = "sentinel-core", editable = "packages/sentinel_core" },
     { name = "sentinel-ingestion", editable = "modules/ingestion" },
+    { name = "sentinel-txn-fraud", editable = "modules/txn_fraud" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
 
@@ -1018,12 +1022,14 @@ source = { editable = "apps/ingest" }
 dependencies = [
     { name = "sentinel-core" },
     { name = "sentinel-ingestion" },
+    { name = "sentinel-txn-fraud" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "sentinel-core", editable = "packages/sentinel_core" },
     { name = "sentinel-ingestion", editable = "modules/ingestion" },
+    { name = "sentinel-txn-fraud", editable = "modules/txn_fraud" },
 ]
 
 [[package]]
@@ -1042,6 +1048,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "sentinel-scorer"
+version = "0.4.0"
+source = { editable = "apps/scorer" }
+dependencies = [
+    { name = "sentinel-core" },
+    { name = "sentinel-txn-fraud" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "sentinel-core", editable = "packages/sentinel_core" },
+    { name = "sentinel-txn-fraud", editable = "modules/txn_fraud" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
+]
+
+[[package]]
 name = "sentinel-synth"
 version = "0.3.0"
 source = { editable = "modules/synth" }
@@ -1053,6 +1076,23 @@ dependencies = [
 requires-dist = [{ name = "pydantic", specifier = ">=2.9" }]
 
 [[package]]
+name = "sentinel-txn-fraud"
+version = "0.4.0"
+source = { editable = "modules/txn_fraud" }
+dependencies = [
+    { name = "sentinel-core" },
+    { name = "sentinel-ingestion" },
+    { name = "valkey" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "sentinel-core", editable = "packages/sentinel_core" },
+    { name = "sentinel-ingestion", editable = "modules/ingestion" },
+    { name = "valkey", specifier = ">=6.0" },
+]
+
+[[package]]
 name = "sentinel-workspace"
 version = "0.2.0"
 source = { virtual = "." }
@@ -1061,7 +1101,9 @@ dependencies = [
     { name = "sentinel-core" },
     { name = "sentinel-ingest" },
     { name = "sentinel-ingestion" },
+    { name = "sentinel-scorer" },
     { name = "sentinel-synth" },
+    { name = "sentinel-txn-fraud" },
 ]
 
 [package.dev-dependencies]
@@ -1085,7 +1127,9 @@ requires-dist = [
     { name = "sentinel-core", editable = "packages/sentinel_core" },
     { name = "sentinel-ingest", editable = "apps/ingest" },
     { name = "sentinel-ingestion", editable = "modules/ingestion" },
+    { name = "sentinel-scorer", editable = "apps/scorer" },
     { name = "sentinel-synth", editable = "modules/synth" },
+    { name = "sentinel-txn-fraud", editable = "modules/txn_fraud" },
 ]
 
 [package.metadata.requires-dev]
@@ -1226,6 +1270,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/51/27/c1d2f9fa977f8f42ea294604166df10e0027e6dc6cd17f85ede386c9bf36/uvloop-0.23.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:090865d8ce7a03986755a3ce711b7dd0d4b44eb14ab74368b717f3fad1180208", size = 4532597, upload-time = "2026-10-01T03:15:47.258Z" },
     { url = "https://files.pythonhosted.org/packages/42/dd/2cb6a2c8a30ca55c07a882dd4ae4ceae0fa7d8c15b25b3b7cb9a4b6cf4ca/uvloop-0.23.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:bd6f2f81c7b9da99d301c0b16b82044e76fe887086e42e1590ecf520b94dbdac", size = 4230048, upload-time = "2026-10-01T03:15:49.119Z" },
     { url = "https://files.pythonhosted.org/packages/f4/52/29989cbaa4022dc4ef35c1dd60a4ab989e4c2065f341ed483ae71d2bd950/uvloop-0.23.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:a6ac96da66c35bf789bdcde78a88dc7d56b7907d8379648c54adc1c61594575d", size = 4394152, upload-time = "2026-10-01T03:15:50.829Z" },
+]
+
+[[package]]
+name = "valkey"
+version = "6.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/c7/38b3ae24672abcc19e668858c4c8c4f7b7d0dda06973f46d755190452fdc/valkey-6.2.0.tar.gz", hash = "sha256:7337c493ce55d7fe58ab44c93c37f56552dad75f9512e97c5808374ab5af4939", size = 4596658, upload-time = "2026-10-12T10:24:28.403Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/10/84312ccb0d328702e27f2e79c18aa84004482dd1737dc58d2b352d7289e2/valkey-6.2.0-py3-none-any.whl", hash = "sha256:94a12c87cd070e356b2c89e2946fa582d9f65ec2e003ab1867e987220e2beae8", size = 261233, upload-time = "2026-10-12T10:24:26.871Z" },
 ]
 
 [[package]]

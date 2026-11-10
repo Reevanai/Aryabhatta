@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     openbao_transit_mount: str = "transit"
 
     kafka_bootstrap: str = "localhost:9092"
+    valkey_url: str | None = None
     intake_topic: str = "sentinel.intake.transaction.v1"
     filestore_dir: Path = Path("var/files")
     max_batch_bytes: int = 50 * 1024 * 1024

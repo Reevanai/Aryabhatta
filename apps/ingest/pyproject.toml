@@ -3,7 +3,7 @@ name = "sentinel-ingest"
 version = "0.2.0"
 description = "Sentinel ingest worker"
 requires-python = ">=3.12,<3.13"
-dependencies = ["sentinel-core", "sentinel-ingestion"]
+dependencies = ["sentinel-core", "sentinel-ingestion", "sentinel-txn-fraud"]
 
 [project.scripts]
 sentinel-ingest = "sentinel_ingest.main:main"
@@ -11,6 +11,7 @@ sentinel-ingest = "sentinel_ingest.main:main"
 [tool.uv.sources]
 sentinel-core = { workspace = true }
 sentinel-ingestion = { workspace = true }
+sentinel-txn-fraud = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

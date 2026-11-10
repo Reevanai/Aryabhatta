@@ -3,11 +3,12 @@ name = "sentinel-api"
 version = "0.2.0"
 description = "Sentinel API application"
 requires-python = ">=3.12,<3.13"
-dependencies = ["sentinel-core", "sentinel-ingestion", "uvicorn[standard]>=0.32"]
+dependencies = ["sentinel-core", "sentinel-ingestion", "sentinel-txn-fraud", "uvicorn[standard]>=0.32"]
 
 [tool.uv.sources]
 sentinel-core = { workspace = true }
 sentinel-ingestion = { workspace = true }
+sentinel-txn-fraud = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

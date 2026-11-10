@@ -10,6 +10,7 @@ x-app-env: &app-env
   SENTINEL_OPENBAO_ADDR: http://openbao:8200
   SENTINEL_OPENBAO_TOKEN: ${OPENBAO_DEV_ROOT_TOKEN}
   SENTINEL_KAFKA_BOOTSTRAP: redpanda:9092
+  SENTINEL_VALKEY_URL: redis://valkey:6379/0
   SENTINEL_FILESTORE_DIR: /var/lib/sentinel/files
 
 x-app: &app
@@ -53,6 +54,16 @@ services:
       test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
       interval: 3s
       timeout: 5s
+      retries: 30
+
+  valkey:
+    image: ghcr.io/valkey-io/valkey:8-alpine
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:56379:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
       retries: 30
 
   openbao:
@@ -143,6 +154,23 @@ services:
       timeout: 3s
       retries: 20
 
+  scorer:
+    <<: *app
+    profiles: [full]
+    environment: *app-env
+    command: ["uvicorn", "sentinel_scorer.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8001"]
+    ports: ["127.0.0.1:8001:8001"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      openbao-init: { condition: service_completed_successfully }
+      keycloak: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   ingest:
     <<: *app
     profiles: [full]
@@ -154,6 +182,7 @@ services:
       migrate: { condition: service_completed_successfully }
       openbao-init: { condition: service_completed_successfully }
       redpanda: { condition: service_healthy }
+      valkey: { condition: service_healthy }
 
 volumes:
   pgdata:

@@ -45,6 +45,33 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "pii:reveal": frozenset({"investigator", "supervisor", "compliance_officer"}),
     "ingestion:write": frozenset({"tenant_admin", "integration"}),
     "ingestion:read": frozenset({"tenant_admin", "integration", "auditor", "compliance_officer"}),
+    "score:request": frozenset({"integration"}),
+    "score:read": frozenset(
+        {
+            "analyst",
+            "investigator",
+            "supervisor",
+            "compliance_officer",
+            "auditor",
+            "rule_author",
+            "rule_approver",
+        }
+    ),
+    "rule:read": frozenset(
+        {
+            "rule_author",
+            "rule_approver",
+            "analyst",
+            "investigator",
+            "supervisor",
+            "compliance_officer",
+            "auditor",
+        }
+    ),
+    "rule:author": frozenset({"rule_author"}),
+    "rule:approve": frozenset({"rule_approver"}),
+    "threshold:write": frozenset({"rule_approver"}),
+    "label:write": frozenset({"tenant_admin"}),
 }
 
 

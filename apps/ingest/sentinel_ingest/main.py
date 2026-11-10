@@ -10,9 +10,17 @@ from sentinel_core.logging import configure_logging, get_logger
 from sentinel_core.outbox import KafkaPublisher, OutboxRelay
 from sentinel_core.runtime import Platform, build_platform
 from sentinel_ingestion.public import BatchService, IngestionService, IntakeMessage, handle_intake
+from sentinel_txn_fraud.public import (
+    CONSUMER_GROUP,
+    TRANSACTION_TOPIC,
+    BacktestService,
+    ScoringService,
+    build_state,
+    handle_transactions,
+)
 
 log = get_logger(__name__)
-ROLES = ("batches", "intake", "relay")
+ROLES = ("batches", "intake", "relay", "scoring", "backtests")
 
 
 async def run_batches(
@@ -70,6 +78,49 @@ async def run_intake(platform: Platform, service: IngestionService, stop: asynci
         await consumer.stop()
 
 
+async def run_scoring(platform: Platform, service: ScoringService, stop: asyncio.Event) -> None:
+    """Score every ingested transaction. Offsets are committed after the scores are stored; a
+    replayed poll is recognised by transaction id and skipped."""
+    consumer = AIOKafkaConsumer(
+        TRANSACTION_TOPIC,
+        bootstrap_servers=platform.settings.kafka_bootstrap,
+        group_id=CONSUMER_GROUP,
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+    )
+    await consumer.start()
+    try:
+        while not stop.is_set():
+            polled = await consumer.getmany(timeout_ms=500, max_records=500)
+            # Partitions are handled one after another, in offset order, so each account's
+            # transactions are scored in sequence.
+            values = [record.value or b"" for records in polled.values() for record in records]
+            if not values:
+                continue
+            counts = await handle_transactions(service, values)
+            await consumer.commit()
+            log.info("scoring_processed", **counts)
+    finally:
+        await consumer.stop()
+
+
+async def run_backtests(
+    backtests: BacktestService, stop: asyncio.Event, idle_seconds: float = 1.0
+) -> None:
+    while not stop.is_set():
+        try:
+            claimed = await backtests.claim_next()
+            if claimed is not None:
+                job = await backtests.run(*claimed)
+                log.info(
+                    "backtest_finished", backtest_id=str(job.id), status=job.status, hits=job.hits
+                )
+                continue
+        except Exception:
+            log.exception("backtest_loop_failed")
+        await _wait(stop, idle_seconds)
+
+
 async def run_relay(platform: Platform, stop: asyncio.Event) -> None:
     producer = AIOKafkaProducer(
         bootstrap_servers=platform.settings.kafka_bootstrap, acks="all", enable_idempotence=True
@@ -104,6 +155,11 @@ async def run(roles: list[str]) -> None:
         tasks.append(asyncio.create_task(run_intake(platform, service, stop)))
     if "relay" in roles:
         tasks.append(asyncio.create_task(run_relay(platform, stop)))
+    if "scoring" in roles:
+        scoring = ScoringService(platform, build_state(settings))
+        tasks.append(asyncio.create_task(run_scoring(platform, scoring, stop)))
+    if "backtests" in roles:
+        tasks.append(asyncio.create_task(run_backtests(BacktestService(platform), stop)))
     log.info("worker_started", roles=roles)
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)

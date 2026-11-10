@@ -19,7 +19,7 @@ install:
 	uv sync --frozen
 
 deps-up:
-	$(COMPOSE) up -d --wait postgres redpanda openbao
+	$(COMPOSE) up -d --wait postgres redpanda openbao valkey
 	$(COMPOSE) up openbao-init
 
 up:

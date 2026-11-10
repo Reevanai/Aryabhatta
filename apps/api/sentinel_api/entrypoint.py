@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from sentinel_core.errors import SentinelError
 from sentinel_core.web import install_error_handlers
 from sentinel_ingestion.public import router as ingestion_router
+from sentinel_txn_fraud.public import router as txn_fraud_router
+from sentinel_txn_fraud.public import score_router
 
 from sentinel_api.app import create_app
 from sentinel_api.platform_routes import router as platform_router
@@ -46,6 +48,8 @@ def unconfigured_app(missing: list[str]) -> FastAPI:
     install_error_handlers(app)
     app.include_router(platform_router, prefix="/v1", dependencies=[Depends(refuse)])
     app.include_router(ingestion_router, prefix="/v1", dependencies=[Depends(refuse)])
+    app.include_router(txn_fraud_router, prefix="/v1", dependencies=[Depends(refuse)])
+    app.include_router(score_router, prefix="/v1", dependencies=[Depends(refuse)])
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, object]:

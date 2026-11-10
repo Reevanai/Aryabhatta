@@ -1,0 +1,17 @@
+[project]
+name = "sentinel-scorer"
+version = "0.4.0"
+description = "Sentinel real-time scoring service"
+requires-python = ">=3.12,<3.13"
+dependencies = ["sentinel-core", "sentinel-txn-fraud", "uvicorn[standard]>=0.32"]
+
+[tool.uv.sources]
+sentinel-core = { workspace = true }
+sentinel-txn-fraud = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sentinel_scorer"]
