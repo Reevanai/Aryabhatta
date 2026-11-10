@@ -1,0 +1,457 @@
+"""Validates, tokenises and stores incoming records; quarantines what fails."""
+
+import json
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Any, Literal
+from uuid import UUID
+
+from pydantic import ValidationError
+from sentinel_core.context import TenantContext
+from sentinel_core.crypto import decrypt, encrypt
+from sentinel_core.events import build_event
+from sentinel_core.ids import uuid7
+from sentinel_core.outbox import add_to_outbox
+from sentinel_core.runtime import Platform
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection
+
+from sentinel_ingestion.domain.models import (
+    AccountRow,
+    Dataset,
+    PartyRow,
+    RowError,
+    TransactionInput,
+    safe_errors,
+    transaction_from_csv,
+)
+
+Source = Literal["batch", "http", "stream"]
+TRANSACTION_TOPIC = "sentinel.ingestion.transaction.v1"
+PRODUCER = "ingestion"
+
+
+@dataclass
+class Counts:
+    total: int = 0
+    loaded: int = 0
+    quarantined: int = 0
+    duplicates: int = 0
+
+    def add(self, other: "Counts") -> None:
+        self.total += other.total
+        self.loaded += other.loaded
+        self.quarantined += other.quarantined
+        self.duplicates += other.duplicates
+
+
+@dataclass
+class _Rejected:
+    row_number: int | None
+    raw: dict[str, Any]
+    errors: list[RowError]
+
+
+@dataclass
+class _Chunk:
+    rejected: list[_Rejected] = field(default_factory=list)
+    counts: Counts = field(default_factory=Counts)
+
+    def reject(self, row_number: int | None, raw: dict[str, Any], *errors: RowError) -> None:
+        self.rejected.append(_Rejected(row_number, raw, list(errors)))
+
+
+def _ref_error(field_name: str, message: str) -> RowError:
+    return RowError(field=field_name, rule="reference", message=message)
+
+
+class IngestionService:
+    def __init__(self, platform: Platform) -> None:
+        self._p = platform
+        self._partitions: set[tuple[int, int]] = set()
+
+    # Public entry points -------------------------------------------------------
+
+    async def ingest_rows(
+        self,
+        ctx: TenantContext,
+        dataset: Dataset,
+        rows: Sequence[tuple[int | None, dict[str, Any]]],
+        *,
+        source: Source,
+        batch_id: UUID | None = None,
+        flat_transactions: bool = False,
+    ) -> Counts:
+        """Process one chunk of raw rows in a single transaction."""
+        if not ctx.institution_wide:
+            raise PermissionError("ingestion requires an institution-wide context")
+        chunk = _Chunk()
+        chunk.counts.total = len(rows)
+        if dataset == "parties":
+            await self._parties(ctx, rows, chunk)
+        elif dataset == "accounts":
+            await self._accounts(ctx, rows, chunk)
+        else:
+            await self._transactions(ctx, rows, chunk, flat_transactions)
+        if chunk.rejected:
+            await self._quarantine(ctx, dataset, source, batch_id, chunk.rejected)
+        chunk.counts.quarantined = len(chunk.rejected)
+        return chunk.counts
+
+    async def read_quarantined(self, ctx: TenantContext, record_id: UUID) -> dict[str, Any]:
+        """Decrypt a quarantined row. Callers must hold a purpose that allows clear data."""
+        async with self._p.db.tenant_tx(ctx) as conn:
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT raw_ciphertext, key_version FROM ingestion.quarantine_record "
+                        "WHERE id = :id"
+                    ),
+                    {"id": record_id},
+                )
+            ).one()
+        key = await self._p.keys.get(ctx, "file", row.key_version)
+        aad = f"{ctx.tenant_id}|quarantine|{record_id}".encode()
+        loaded: dict[str, Any] = json.loads(decrypt(key.key, bytes(row.raw_ciphertext), aad))
+        return loaded
+
+    # Parties ----------------------------------------------------------------------
+
+    async def _parties(
+        self, ctx: TenantContext, rows: Sequence[tuple[int | None, dict[str, Any]]], chunk: _Chunk
+    ) -> None:
+        valid: list[PartyRow] = []
+        for number, raw in rows:
+            try:
+                valid.append(PartyRow.model_validate(raw))
+            except ValidationError as exc:
+                chunk.reject(number, raw, *safe_errors(exc))
+        if not valid:
+            return
+        items: list[tuple[str, str]] = []
+        slots: list[dict[str, int]] = []
+        for row in valid:
+            slot: dict[str, int] = {}
+            for column, field_type, value in (
+                ("party_token", "cust", row.customer_id),
+                ("name_token", "name", row.full_name),
+                ("pan_token", "pan", row.pan),
+                ("phone_token", "phone", row.phone),
+                ("email_token", "email", row.email),
+                ("address_token", "addr", row.address),
+                ("dob_token", "dob", row.date_of_birth.isoformat() if row.date_of_birth else None),
+            ):
+                if value is not None:
+                    slot[column] = len(items)
+                    items.append((field_type, value))
+            slots.append(slot)
+        tokens = await self._p.tokeniser.tokenise_many(ctx, items)
+        params = []
+        for row, slot in zip(valid, slots, strict=True):
+            record: dict[str, Any] = {
+                "id": uuid7(),
+                "t": ctx.tenant_id,
+                "party_type": row.party_type,
+                "risk": row.kyc_risk_category,
+                "onboarded": row.onboarded_on,
+            }
+            for column in (
+                "party_token",
+                "name_token",
+                "pan_token",
+                "phone_token",
+                "email_token",
+                "address_token",
+                "dob_token",
+            ):
+                record[column] = tokens[slot[column]] if column in slot else None
+            params.append(record)
+        # Last row wins when a file repeats a customer.
+        unique = list({p["party_token"]: p for p in params}.values())
+        async with self._p.db.tenant_tx(ctx) as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO ingestion.party (id, tenant_id, party_token, party_type, name_token, "
+                    "pan_token, phone_token, email_token, address_token, dob_token, kyc_risk_category, "
+                    "onboarded_on) VALUES (:id, :t, :party_token, :party_type, :name_token, :pan_token, "
+                    ":phone_token, :email_token, :address_token, :dob_token, :risk, :onboarded) "
+                    "ON CONFLICT (tenant_id, party_token) DO UPDATE SET party_type = EXCLUDED.party_type, "
+                    "name_token = EXCLUDED.name_token, pan_token = EXCLUDED.pan_token, "
+                    "phone_token = EXCLUDED.phone_token, email_token = EXCLUDED.email_token, "
+                    "address_token = EXCLUDED.address_token, dob_token = EXCLUDED.dob_token, "
+                    "kyc_risk_category = EXCLUDED.kyc_risk_category, "
+                    "onboarded_on = EXCLUDED.onboarded_on, updated_at = now()"
+                ),
+                unique,
+            )
+        chunk.counts.loaded += len(valid)
+
+    # Accounts ---------------------------------------------------------------------
+
+    async def _accounts(
+        self, ctx: TenantContext, rows: Sequence[tuple[int | None, dict[str, Any]]], chunk: _Chunk
+    ) -> None:
+        valid: list[tuple[int | None, dict[str, Any], AccountRow]] = []
+        for number, raw in rows:
+            try:
+                valid.append((number, raw, AccountRow.model_validate(raw)))
+            except ValidationError as exc:
+                chunk.reject(number, raw, *safe_errors(exc))
+        if not valid:
+            return
+        items = [
+            pair
+            for _, _, r in valid
+            for pair in (("acct", r.account_number), ("cust", r.customer_id))
+        ]
+        tokens = await self._p.tokeniser.tokenise_many(ctx, items)
+        async with self._p.db.tenant_tx(ctx) as conn:
+            branches = await _branches(conn)
+            parties = await _party_ids(conn, tokens[1::2])
+            params = []
+            for index, (number, raw, row) in enumerate(valid):
+                branch_id = branches.get(row.branch_code)
+                party_id = parties.get(tokens[index * 2 + 1])
+                errors = []
+                if branch_id is None:
+                    errors.append(_ref_error("branch_code", "unknown branch"))
+                if party_id is None:
+                    errors.append(_ref_error("customer_id", "unknown customer"))
+                if errors:
+                    chunk.reject(number, raw, *errors)
+                    continue
+                params.append(
+                    {
+                        "id": uuid7(),
+                        "t": ctx.tenant_id,
+                        "b": branch_id,
+                        "tok": tokens[index * 2],
+                        "p": party_id,
+                        "pt": row.product_type,
+                        "s": row.status,
+                        "o": row.opened_on,
+                        "c": row.currency,
+                    }
+                )
+            unique = list({p["tok"]: p for p in params}.values())
+            if unique:
+                await conn.execute(
+                    text(
+                        "INSERT INTO ingestion.account (id, tenant_id, branch_id, account_token, party_id, "
+                        "product_type, status, opened_on, currency) VALUES (:id, :t, :b, :tok, :p, :pt, "
+                        ":s, :o, :c) ON CONFLICT (tenant_id, account_token) DO UPDATE SET "
+                        "branch_id = EXCLUDED.branch_id, party_id = EXCLUDED.party_id, "
+                        "product_type = EXCLUDED.product_type, status = EXCLUDED.status, "
+                        "opened_on = EXCLUDED.opened_on, currency = EXCLUDED.currency, updated_at = now()"
+                    ),
+                    unique,
+                )
+            chunk.counts.loaded += len(params)
+
+    # Transactions -----------------------------------------------------------------
+
+    async def _transactions(
+        self,
+        ctx: TenantContext,
+        rows: Sequence[tuple[int | None, dict[str, Any]]],
+        chunk: _Chunk,
+        flat: bool,
+    ) -> None:
+        valid: list[tuple[int | None, dict[str, Any], TransactionInput]] = []
+        for number, raw in rows:
+            try:
+                parsed = transaction_from_csv(raw) if flat else TransactionInput.model_validate(raw)
+                valid.append((number, raw, parsed))
+            except ValidationError as exc:
+                chunk.reject(number, raw, *safe_errors(exc))
+        if not valid:
+            return
+        items: list[tuple[str, str]] = []
+        slots: list[dict[str, int]] = []
+        for _, _, txn in valid:
+            slot: dict[str, int] = {}
+            for name, field_type, value in (
+                ("account", "acct", txn.account_number),
+                ("cp_account", "acct", txn.counterparty_account_number),
+                ("cp_vpa", "vpa", txn.counterparty_vpa),
+                ("device", "dev", txn.device_id),
+                ("ip", "ip", txn.ip_address),
+            ):
+                if value is not None:
+                    slot[name] = len(items)
+                    items.append((field_type, value))
+            slots.append(slot)
+        tokens = await self._p.tokeniser.tokenise_many(ctx, items)
+
+        async with self._p.db.tenant_tx(ctx) as conn:
+            branches = await _branches(conn)
+            accounts = await _accounts_by_token(conn, [tokens[s["account"]] for s in slots])
+            for (number, raw, txn), slot in zip(valid, slots, strict=True):
+                account_token = tokens[slot["account"]]
+                account = accounts.get(account_token)
+                if account is None:
+                    chunk.reject(number, raw, _ref_error("account_number", "unknown account"))
+                    continue
+                branch_id = account.branch_id
+                if txn.branch_code is not None:
+                    known = branches.get(txn.branch_code)
+                    if known is None:
+                        chunk.reject(number, raw, _ref_error("branch_code", "unknown branch"))
+                        continue
+                    branch_id = known
+                await self._ensure_partition(conn, txn.booked_at.date())
+                transaction_id = uuid7()
+                optional = {
+                    name: tokens[slot[name]] if name in slot else None
+                    for name in ("cp_account", "cp_vpa", "device", "ip")
+                }
+                inserted = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO ingestion.transaction (id, tenant_id, branch_id, source_reference, "
+                            "channel, direction, amount, currency, booked_at, account_id, account_token, "
+                            "party_token, counterparty_account_token, counterparty_vpa_token, "
+                            "counterparty_bank_code, device_token, ip_token, merchant_category, status, "
+                            "attributes) VALUES (:id, :t, :b, :ref, :ch, :dir, :amt, :cur, :at, :acc, "
+                            ":acct, :party, :cpa, :cpv, :cpb, :dev, :ip, :mcc, :st, CAST(:attrs AS jsonb)) "
+                            "ON CONFLICT (tenant_id, source_reference, booked_at) DO NOTHING RETURNING id"
+                        ),
+                        {
+                            "id": transaction_id,
+                            "t": ctx.tenant_id,
+                            "b": branch_id,
+                            "ref": txn.source_reference,
+                            "ch": txn.channel,
+                            "dir": txn.direction,
+                            "amt": txn.amount.amount,
+                            "cur": txn.amount.currency,
+                            "at": txn.booked_at,
+                            "acc": account.id,
+                            "acct": account_token,
+                            "party": account.party_token,
+                            "cpa": optional["cp_account"],
+                            "cpv": optional["cp_vpa"],
+                            "cpb": txn.counterparty_bank_code,
+                            "dev": optional["device"],
+                            "ip": optional["ip"],
+                            "mcc": txn.merchant_category,
+                            "st": txn.status,
+                            "attrs": json.dumps(txn.attributes),
+                        },
+                    )
+                ).first()
+                if inserted is None:
+                    chunk.counts.duplicates += 1
+                    continue
+                chunk.counts.loaded += 1
+                event = build_event(
+                    ctx,
+                    event_type="ingestion.transaction.received",
+                    producer=PRODUCER,
+                    branch_id=branch_id,
+                    payload={
+                        "transaction_id": str(transaction_id),
+                        "source_reference": txn.source_reference,
+                        "channel": txn.channel,
+                        "direction": txn.direction,
+                        "amount": {
+                            "amount": f"{txn.amount.amount:.2f}",
+                            "currency": txn.amount.currency,
+                        },
+                        "booked_at": txn.booked_at.isoformat(),
+                        "account_token": account_token,
+                        "party_token": account.party_token,
+                        "counterparty_account_token": optional["cp_account"],
+                        "counterparty_vpa_token": optional["cp_vpa"],
+                        "counterparty_bank_code": txn.counterparty_bank_code,
+                        "device_token": optional["device"],
+                        "ip_token": optional["ip"],
+                        "merchant_category": txn.merchant_category,
+                        "status": txn.status,
+                        "attributes": txn.attributes,
+                    },
+                )
+                await add_to_outbox(
+                    conn,
+                    topic=TRANSACTION_TOPIC,
+                    key=f"{ctx.tenant_id}:{account_token}",
+                    event=event,
+                )
+
+    async def _ensure_partition(self, conn: AsyncConnection, day: date) -> None:
+        month = (day.year, day.month)
+        if month not in self._partitions:
+            await conn.execute(
+                text("SELECT ingestion.ensure_transaction_partition(:d)"), {"d": day}
+            )
+            self._partitions.add(month)
+
+    # Quarantine ---------------------------------------------------------------------
+
+    async def _quarantine(
+        self,
+        ctx: TenantContext,
+        dataset: str,
+        source: Source,
+        batch_id: UUID | None,
+        rejected: list[_Rejected],
+    ) -> None:
+        key = await self._p.keys.get(ctx, "file")
+        params = []
+        for item in rejected:
+            record_id = uuid7()
+            aad = f"{ctx.tenant_id}|quarantine|{record_id}".encode()
+            params.append(
+                {
+                    "id": record_id,
+                    "t": ctx.tenant_id,
+                    "b": batch_id,
+                    "src": source,
+                    "ds": dataset,
+                    "n": item.row_number,
+                    "raw": encrypt(key.key, json.dumps(item.raw, default=str).encode(), aad),
+                    "kv": key.version,
+                    "errors": json.dumps([e.model_dump() for e in item.errors]),
+                }
+            )
+        async with self._p.db.tenant_tx(ctx) as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO ingestion.quarantine_record (id, tenant_id, batch_id, source, dataset, "
+                    "row_number, raw_ciphertext, key_version, errors) VALUES (:id, :t, :b, :src, :ds, :n, "
+                    ":raw, :kv, CAST(:errors AS jsonb))"
+                ),
+                params,
+            )
+
+
+@dataclass(frozen=True)
+class _Account:
+    id: UUID
+    branch_id: UUID
+    party_token: str
+
+
+async def _branches(conn: AsyncConnection) -> dict[str, UUID]:
+    rows = await conn.execute(text("SELECT code, id FROM core.branch WHERE status = 'active'"))
+    return {row.code: row.id for row in rows}
+
+
+async def _party_ids(conn: AsyncConnection, tokens: Sequence[str]) -> dict[str, UUID]:
+    rows = await conn.execute(
+        text("SELECT party_token, id FROM ingestion.party WHERE party_token = ANY(:tokens)"),
+        {"tokens": list(set(tokens))},
+    )
+    return {row.party_token: row.id for row in rows}
+
+
+async def _accounts_by_token(conn: AsyncConnection, tokens: Sequence[str]) -> dict[str, _Account]:
+    rows = await conn.execute(
+        text(
+            "SELECT a.account_token, a.id, a.branch_id, p.party_token FROM ingestion.account a "
+            "JOIN ingestion.party p ON p.id = a.party_id WHERE a.account_token = ANY(:tokens)"
+        ),
+        {"tokens": list(set(tokens))},
+    )
+    return {row.account_token: _Account(row.id, row.branch_id, row.party_token) for row in rows}

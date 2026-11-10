@@ -1,0 +1,144 @@
+{
+  "realm": "sentinel-demo",
+  "enabled": true,
+  "displayName": "Sentinel demo tenant (development only)",
+  "sslRequired": "external",
+  "accessTokenLifespan": 300,
+  "requiredActions": [
+    {
+      "alias": "CONFIGURE_TOTP",
+      "name": "Configure OTP",
+      "providerId": "CONFIGURE_TOTP",
+      "enabled": true,
+      "defaultAction": true,
+      "priority": 10
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "analyst"
+      },
+      {
+        "name": "investigator"
+      },
+      {
+        "name": "supervisor"
+      },
+      {
+        "name": "compliance_officer"
+      },
+      {
+        "name": "rule_author"
+      },
+      {
+        "name": "rule_approver"
+      },
+      {
+        "name": "model_approver"
+      },
+      {
+        "name": "ciso"
+      },
+      {
+        "name": "tenant_admin"
+      },
+      {
+        "name": "auditor"
+      },
+      {
+        "name": "integration"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "sentinel-demo-cli",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-demo-cli-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "tenant_id",
+            "claim.value": "0192f000-0000-7000-8000-00000000d001",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "sentinel-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "sentinel-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "sentinel-demo-auditor",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-demo-auditor-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "tenant_id",
+            "claim.value": "0192f000-0000-7000-8000-00000000d001",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "sentinel-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "sentinel-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-sentinel-demo-cli",
+      "enabled": true,
+      "serviceAccountClientId": "sentinel-demo-cli",
+      "realmRoles": [
+        "tenant_admin",
+        "integration",
+        "investigator"
+      ]
+    },
+    {
+      "username": "service-account-sentinel-demo-auditor",
+      "enabled": true,
+      "serviceAccountClientId": "sentinel-demo-auditor",
+      "realmRoles": [
+        "auditor"
+      ]
+    }
+  ]
+}

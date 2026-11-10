@@ -1,0 +1,102 @@
+[project]
+name = "sentinel-workspace"
+version = "0.2.0"
+description = "Sentinel: fraud, AML and cyber-risk platform (workspace root)"
+requires-python = ">=3.12,<3.13"
+dependencies = ["sentinel-core", "sentinel-ingestion", "sentinel-api", "sentinel-ingest"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3", "pytest-asyncio>=0.24", "pytest-cov>=5.0", "httpx>=0.27",
+  "mypy>=1.13", "ruff>=0.7", "import-linter>=2.1", "pip-licenses>=5.0",
+  "types-PyYAML", "pyyaml>=6.0", "openapi-spec-validator>=0.7",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/sentinel_core", "modules/ingestion", "apps/api", "apps/ingest"]
+
+[tool.uv.sources]
+sentinel-core = { workspace = true }
+sentinel-ingestion = { workspace = true }
+sentinel-api = { workspace = true }
+sentinel-ingest = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "RUF", "ASYNC", "PT"]
+ignore = ["S101", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]
+"scripts/**" = ["S311", "S105", "S106"]
+# batches.py interpolates only module-level column-list constants into SQL, never input.
+"modules/ingestion/sentinel_ingestion/batches.py" = ["S608"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["packages", "modules", "apps", "tests", "scripts"]
+explicit_package_bases = true
+mypy_path = ["packages/sentinel_core", "modules/ingestion", "apps/api", "apps/ingest"]
+
+[[tool.mypy.overrides]]
+module = ["aiokafka.*", "jsonschema.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+markers = [
+  "integration: needs PostgreSQL",
+  "kafka: needs a Kafka-API broker",
+  "openbao: needs OpenBao",
+]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["sentinel_core", "sentinel_ingestion", "sentinel_api", "sentinel_ingest"]
+omit = ["*/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.importlinter]
+root_packages = ["sentinel_core", "sentinel_ingestion", "sentinel_api", "sentinel_ingest"]
+
+[[tool.importlinter.contracts]]
+name = "Core does not import modules or apps"
+type = "forbidden"
+source_modules = ["sentinel_core"]
+forbidden_modules = ["sentinel_ingestion", "sentinel_api", "sentinel_ingest"]
+
+[[tool.importlinter.contracts]]
+name = "Modules do not import apps"
+type = "forbidden"
+source_modules = ["sentinel_ingestion"]
+forbidden_modules = ["sentinel_api", "sentinel_ingest"]
+
+[[tool.importlinter.contracts]]
+name = "Apps use only a module's public interface"
+type = "forbidden"
+source_modules = ["sentinel_api", "sentinel_ingest"]
+forbidden_modules = [
+  "sentinel_ingestion.domain", "sentinel_ingestion.adapters", "sentinel_ingestion.service",
+  "sentinel_ingestion.batches", "sentinel_ingestion.api", "sentinel_ingestion.consumers",
+]
+
+[[tool.importlinter.contracts]]
+name = "Ingestion domain has no I/O dependencies"
+type = "forbidden"
+source_modules = ["sentinel_ingestion.domain"]
+forbidden_modules = ["sqlalchemy", "fastapi", "aiokafka", "httpx", "sentinel_core.db"]

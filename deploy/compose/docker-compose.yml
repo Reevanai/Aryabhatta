@@ -1,0 +1,160 @@
+# Development stack. Images come from registries without anonymous pull limits.
+# `make deps-up` starts only what the tests need; `make up` starts everything.
+name: sentinel
+
+x-app-env: &app-env
+  SENTINEL_DATABASE_URL_APP: postgresql+asyncpg://sentinel_app:${SENTINEL_DB_APP_PASSWORD}@postgres:5432/sentinel
+  SENTINEL_DATABASE_URL_VAULT: postgresql+asyncpg://sentinel_vault:${SENTINEL_DB_VAULT_PASSWORD}@postgres:5432/sentinel
+  SENTINEL_DATABASE_URL_RELAY: postgresql+asyncpg://sentinel_relay:${SENTINEL_DB_RELAY_PASSWORD}@postgres:5432/sentinel
+  SENTINEL_KEY_SERVICE: openbao
+  SENTINEL_OPENBAO_ADDR: http://openbao:8200
+  SENTINEL_OPENBAO_TOKEN: ${OPENBAO_DEV_ROOT_TOKEN}
+  SENTINEL_KAFKA_BOOTSTRAP: redpanda:9092
+  SENTINEL_FILESTORE_DIR: /var/lib/sentinel/files
+
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: deploy/compose/Dockerfile
+  image: sentinel-app:dev
+
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SENTINEL_DB_OWNER_PASSWORD: ${SENTINEL_DB_OWNER_PASSWORD}
+      SENTINEL_DB_APP_PASSWORD: ${SENTINEL_DB_APP_PASSWORD}
+      SENTINEL_DB_VAULT_PASSWORD: ${SENTINEL_DB_VAULT_PASSWORD}
+      SENTINEL_DB_RELAY_PASSWORD: ${SENTINEL_DB_RELAY_PASSWORD}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - pgdata:/var/lib/postgresql/data
+    ports: ["127.0.0.1:55432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sentinel"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=512M
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports: ["127.0.0.1:19092:19092"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  openbao:
+    image: quay.io/openbao/openbao:2.1.0
+    command: ["server", "-dev", "-dev-root-token-id=${OPENBAO_DEV_ROOT_TOKEN}", "-dev-listen-address=0.0.0.0:8200"]
+    cap_add: [IPC_LOCK]
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+      BAO_TOKEN: ${OPENBAO_DEV_ROOT_TOKEN}
+    ports: ["127.0.0.1:8200:8200"]
+    healthcheck:
+      test: ["CMD-SHELL", "bao status >/dev/null 2>&1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  openbao-init:
+    image: quay.io/openbao/openbao:2.1.0
+    depends_on:
+      openbao: { condition: service_healthy }
+    environment:
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: ${OPENBAO_DEV_ROOT_TOKEN}
+    entrypoint: ["/bin/sh", "-c", "bao secrets list | grep -q '^transit/' || bao secrets enable transit"]
+    restart: "no"
+
+  keycloak:
+    profiles: [full]
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    volumes:
+      - ./keycloak/sentinel-demo-realm.json:/opt/keycloak/data/import/sentinel-demo-realm.json:ro
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: x\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  migrate:
+    <<: *app
+    profiles: [full]
+    environment:
+      <<: *app-env
+      SENTINEL_DATABASE_URL_OWNER: postgresql+asyncpg://sentinel_owner:${SENTINEL_DB_OWNER_PASSWORD}@postgres:5432/sentinel
+    command: ["sentinel-admin", "migrate"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  # One-off administration commands: `docker compose run --rm tools sentinel-admin ...`
+  tools:
+    <<: *app
+    profiles: [tools]
+    environment:
+      <<: *app-env
+      SENTINEL_DATABASE_URL_OWNER: postgresql+asyncpg://sentinel_owner:${SENTINEL_DB_OWNER_PASSWORD}@postgres:5432/sentinel
+    volumes:
+      - files:/var/lib/sentinel/files
+
+  api:
+    <<: *app
+    profiles: [full]
+    environment: *app-env
+    command: ["uvicorn", "sentinel_api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - files:/var/lib/sentinel/files
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      openbao-init: { condition: service_completed_successfully }
+      keycloak: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  ingest:
+    <<: *app
+    profiles: [full]
+    environment: *app-env
+    command: ["sentinel-ingest"]
+    volumes:
+      - files:/var/lib/sentinel/files
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      openbao-init: { condition: service_completed_successfully }
+      redpanda: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  files:
