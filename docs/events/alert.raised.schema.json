@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.invalid/schemas/events/alert.raised.schema.json",
+  "title": "Alert raised",
+  "description": "Payload of `*.alert.raised`. Wrapped in envelope.schema.json.",
+  "type": "object",
+  "required": [
+    "alert_id",
+    "source_module",
+    "alert_type",
+    "severity",
+    "subject"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "alert_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source_module": {
+      "enum": [
+        "txn_fraud",
+        "mule",
+        "aml",
+        "graph",
+        "cyber_risk",
+        "threat_intel",
+        "identity_kyc"
+      ]
+    },
+    "alert_type": {
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "priority_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "party",
+            "account",
+            "transaction",
+            "entity",
+            "device",
+            "incident"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    },
+    "score_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "summary_code": {
+      "type": "string",
+      "description": "Template key; display text is rendered by the console"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.invalid/schemas/events/decision.recorded.schema.json",
+  "title": "Human decision recorded",
+  "description": "Payload of `cases.decision.recorded`. Wrapped in envelope.schema.json.",
+  "type": "object",
+  "required": [
+    "decision_id",
+    "case_id",
+    "outcome",
+    "overrides_recommendation",
+    "reason_code",
+    "decided_by"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "case_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "alert_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "outcome": {
+      "enum": [
+        "confirmed_fraud",
+        "confirmed_suspicious",
+        "false_positive",
+        "inconclusive"
+      ]
+    },
+    "overrides_recommendation": {
+      "type": "boolean"
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "decided_by": {
+      "type": "string"
+    },
+    "approved_by": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Second person, where maker-checker applies"
+    },
+    "label_eligible": {
+      "type": "boolean",
+      "description": "Whether this decision may be used as a training label"
+    }
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.invalid/schemas/events/transaction.received.schema.json",
+  "title": "Transaction received",
+  "description": "Payload of `ingestion.transaction.received`. Wrapped in envelope.schema.json.",
+  "type": "object",
+  "required": [
+    "transaction_id",
+    "channel",
+    "direction",
+    "amount",
+    "booked_at",
+    "account_token",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "transaction_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source_reference": {
+      "type": "string",
+      "description": "Reference from the source system, tokenised if it embeds an identifier"
+    },
+    "channel": {
+      "enum": [
+        "upi",
+        "imps",
+        "neft",
+        "rtgs",
+        "card",
+        "cash",
+        "cheque",
+        "aeps",
+        "internal",
+        "other"
+      ]
+    },
+    "direction": {
+      "enum": [
+        "debit",
+        "credit"
+      ]
+    },
+    "amount": {
+      "$ref": "#/$defs/money"
+    },
+    "booked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "account_token": {
+      "$ref": "#/$defs/token"
+    },
+    "party_token": {
+      "$ref": "#/$defs/token"
+    },
+    "counterparty_account_token": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/token"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "counterparty_vpa_token": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/token"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "counterparty_bank_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "device_token": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/token"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ip_token": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/token"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "merchant_category": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "attempted",
+        "completed",
+        "failed",
+        "reversed"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Channel-specific, non-personal attributes",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^tok_[a-z]+_[A-Za-z0-9_-]{16,}$",
+      "description": "Tokenised identifier. Never a clear value."
+    },
+    "money": {
+      "type": "object",
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "type": "string",
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,2})?$",
+          "description": "Decimal as string"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    }
+  }
+}

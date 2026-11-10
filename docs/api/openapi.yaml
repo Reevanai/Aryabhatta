@@ -1,0 +1,1306 @@
+openapi: 3.1.0
+info:
+  title: Sentinel API
+  version: 0.1.0
+  summary: Fraud, AML and cyber-risk platform API
+  description: |
+    Phase 1 contract. No implementation exists yet.
+
+    Each operation carries `x-sentinel-phase` (the build phase that implements it) and
+    `x-sentinel-status`:
+
+    - `designed`: request and response shapes are fixed for the phase that builds them.
+    - `provisional`: the resource and its place in the API are fixed; the shapes are completed
+      in the module's own phase.
+
+    Conventions:
+
+    - The tenant comes from the access token. It is never a path or body parameter.
+    - Personal identifiers appear as tokens. Clear values are returned only by the reveal
+      endpoint, which is audited.
+    - Scores are recommendations. No endpoint moves, blocks or releases funds.
+    - Lists are cursor-paginated. Errors are RFC 9457 problem documents.
+    - Write operations accept `Idempotency-Key`.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://{host}/v1
+    variables:
+      host:
+        default: localhost:8000
+security:
+  - oidc: []
+tags:
+  - name: platform
+    description: Tenancy, branches, audit, data governance
+  - name: ingestion
+  - name: scoring
+  - name: rules
+  - name: alerts
+  - name: cases
+  - name: graph
+  - name: aml
+  - name: models
+  - name: threat-intel
+  - name: kyc
+  - name: device
+  - name: cyber-risk
+  - name: integrations
+
+paths:
+  /tenant:
+    get:
+      tags: [platform]
+      operationId: getTenant
+      summary: Get the caller's tenant
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      responses:
+        "200":
+          description: Tenant
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /branches:
+    get:
+      tags: [platform]
+      operationId: listBranches
+      summary: List branches visible to the caller
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Branches
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Branch" }
+                  next_cursor: { type: [string, "null"] }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [platform]
+      operationId: createBranch
+      summary: Create a branch
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      x-sentinel-roles: [tenant_admin]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BranchCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Branch" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /audit/events:
+    get:
+      tags: [platform]
+      operationId: listAuditEvents
+      summary: Query the audit log
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      x-sentinel-roles: [auditor, compliance_officer, tenant_admin]
+      parameters:
+        - name: actor_id
+          in: query
+          schema: { type: string }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: resource
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEvent" }
+                  next_cursor: { type: [string, "null"] }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /audit/verify:
+    get:
+      tags: [platform]
+      operationId: verifyAuditChain
+      summary: Recompute the audit hash chain and report the first break
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      x-sentinel-roles: [auditor, tenant_admin]
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditVerification" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /pii/reveal:
+    post:
+      tags: [platform]
+      operationId: revealPii
+      summary: Reveal the clear value behind a token
+      description: Requires a purpose the field allows and a reason. Always audited.
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RevealRequest" }
+      responses:
+        "200":
+          description: Clear value
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevealResponse" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /ingestion/batches:
+    post:
+      tags: [ingestion]
+      operationId: createBatch
+      summary: Upload a batch file for validation and ingestion
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [dataset, file]
+              properties:
+                dataset:
+                  type: string
+                  enum: [parties, accounts, loans, transactions, devices]
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "202":
+          description: Accepted for processing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchJob" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /ingestion/batches/{batch_id}:
+    get:
+      tags: [ingestion]
+      operationId: getBatch
+      summary: Get batch status, counts and quarantine summary
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/BatchId"
+      responses:
+        "200":
+          description: Batch job
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchJob" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /ingestion/quarantine:
+    get:
+      tags: [ingestion]
+      operationId: listQuarantine
+      summary: List quarantined records with their validation errors
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      parameters:
+        - name: batch_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Quarantined records
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/QuarantineRecord" }
+                  next_cursor: { type: [string, "null"] }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /ingestion/events:
+    post:
+      tags: [ingestion]
+      operationId: postEvents
+      summary: Submit transaction events over HTTP (alternative to the Kafka intake topic)
+      x-sentinel-phase: 2
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  maxItems: 500
+                  items: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "202":
+          description: Accepted; per-record results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, quarantined]
+                properties:
+                  accepted: { type: integer }
+                  quarantined: { type: integer }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /score:
+    post:
+      tags: [scoring]
+      operationId: scoreTransaction
+      summary: Score a transaction in real time
+      description: |
+        Served by the `scorer` deployable. Returns a recommendation with reasons. Target p95
+        under 150 ms, measured in CI.
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "200":
+          description: Score
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScoreResult" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /scores/{score_id}:
+    get:
+      tags: [scoring]
+      operationId: getScore
+      summary: Get a stored score with its full explanation
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      parameters:
+        - name: score_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Score
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScoreResult" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /rules:
+    get:
+      tags: [rules]
+      operationId: listRules
+      summary: List rules with their current version and state
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      parameters:
+        - name: state
+          in: query
+          schema: { $ref: "#/components/schemas/RuleState" }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Rule" }
+                  next_cursor: { type: [string, "null"] }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [rules]
+      operationId: createRule
+      summary: Create a rule (first version, in draft)
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      x-sentinel-roles: [rule_author]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuleDraft" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rule" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /rules/{rule_id}/versions:
+    post:
+      tags: [rules]
+      operationId: createRuleVersion
+      summary: Create a new immutable version of a rule, in draft
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      x-sentinel-roles: [rule_author]
+      parameters:
+        - $ref: "#/components/parameters/RuleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuleDraft" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuleVersion" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /rules/{rule_id}/versions/{version}/backtests:
+    post:
+      tags: [rules]
+      operationId: startBacktest
+      summary: Replay a rule version over historical data
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      x-sentinel-roles: [rule_author, rule_approver]
+      parameters:
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/RuleVersionNumber"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+      responses:
+        "202":
+          description: Backtest started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRun" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /backtests/{backtest_id}:
+    get:
+      tags: [rules]
+      operationId: getBacktest
+      summary: Get backtest status and results
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      parameters:
+        - name: backtest_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Backtest
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRun" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /rules/{rule_id}/versions/{version}/transitions:
+    post:
+      tags: [rules]
+      operationId: transitionRuleVersion
+      summary: Move a rule version through its lifecycle
+      description: |
+        `draft → dry_run → pending_approval → active → retired`. Activation requires a completed
+        backtest and approval by a user other than the author.
+      x-sentinel-phase: 4
+      x-sentinel-status: designed
+      x-sentinel-roles: [rule_author, rule_approver]
+      parameters:
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/RuleVersionNumber"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, comment]
+              properties:
+                to: { $ref: "#/components/schemas/RuleState" }
+                comment: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: New state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuleVersion" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /alerts:
+    get:
+      tags: [alerts]
+      operationId: listAlerts
+      summary: Alert queue, ordered by priority
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [new, triaged, in_case, closed] }
+        - name: severity
+          in: query
+          schema: { $ref: "#/components/schemas/Severity" }
+        - name: assignee
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Alerts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Alert" }
+                  next_cursor: { type: [string, "null"] }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /alerts/{alert_id}/disposition:
+    post:
+      tags: [alerts]
+      operationId: disposeAlert
+      summary: Close an alert as a false positive, or open or attach it to a case
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, reason_code]
+              properties:
+                action: { type: string, enum: [close_false_positive, open_case, attach_to_case] }
+                case_id: { type: string, format: uuid }
+                reason_code: { type: string }
+                comment: { type: string }
+      responses:
+        "200":
+          description: Updated alert
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alert" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cases:
+    get:
+      tags: [cases]
+      operationId: listCases
+      summary: List cases
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/CaseStatus" }
+        - name: assignee
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Cases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Case" }
+                  next_cursor: { type: [string, "null"] }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cases/{case_id}:
+    get:
+      tags: [cases]
+      operationId: getCase
+      summary: Get a case with alerts, evidence, notes and history
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/CaseId"
+      responses:
+        "200":
+          description: Case
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Case" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cases/{case_id}/notes:
+    post:
+      tags: [cases]
+      operationId: addCaseNote
+      summary: Add a note
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/CaseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1 }
+      responses:
+        "201": { description: Created }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cases/{case_id}/evidence:
+    post:
+      tags: [cases]
+      operationId: addCaseEvidence
+      summary: Attach evidence (a record reference or an uploaded file)
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/CaseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EvidenceInput" }
+      responses:
+        "201": { description: Created }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cases/{case_id}/transitions:
+    post:
+      tags: [cases]
+      operationId: transitionCase
+      summary: Assign, escalate, recommend, approve, return, close or reopen a case
+      description: Signals the case workflow. Approval must come from a user other than the recommender.
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/CaseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [assign, escalate, recommend, approve, return, close, reopen]
+                assignee: { type: string }
+                comment: { type: string }
+      responses:
+        "200":
+          description: Updated case
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Case" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cases/{case_id}/decisions:
+    post:
+      tags: [cases]
+      operationId: recordDecision
+      summary: Record a human decision on a case
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/CaseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DecisionInput" }
+      responses:
+        "201": { description: Recorded }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cases/{case_id}/summary-drafts:
+    post:
+      tags: [cases]
+      operationId: draftCaseSummary
+      summary: Generate a draft case summary
+      description: |
+        The result is a draft, never a finding. Every statement cites evidence ids. Uses the
+        tenant's configured text-model provider, or a deterministic template when none is set.
+      x-sentinel-phase: 5
+      x-sentinel-status: designed
+      parameters:
+        - $ref: "#/components/parameters/CaseId"
+      responses:
+        "201":
+          description: Draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SummaryDraft" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /entities/{entity_id}:
+    get:
+      tags: [graph]
+      operationId: getEntity360
+      summary: Entity 360 view
+      x-sentinel-phase: 6
+      x-sentinel-status: provisional
+      parameters:
+        - $ref: "#/components/parameters/EntityId"
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /entities/{entity_id}/neighbourhood:
+    get:
+      tags: [graph]
+      operationId: getEntityNeighbourhood
+      summary: Bounded neighbourhood for network visualisation
+      x-sentinel-phase: 6
+      x-sentinel-status: provisional
+      parameters:
+        - $ref: "#/components/parameters/EntityId"
+        - name: hops
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 3, default: 1 }
+        - name: max_nodes
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 200 }
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /communities/{community_id}:
+    get:
+      tags: [graph]
+      operationId: getCommunity
+      summary: Community membership and risk
+      x-sentinel-phase: 6
+      x-sentinel-status: provisional
+      parameters:
+        - name: community_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /screening/requests:
+    post:
+      tags: [aml]
+      operationId: screenParty
+      summary: Screen a party against sanctions and PEP lists
+      x-sentinel-phase: 7
+      x-sentinel-status: provisional
+      requestBody: { $ref: "#/components/requestBodies/Provisional" }
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /reports/drafts:
+    get:
+      tags: [aml]
+      operationId: listReportDrafts
+      summary: List regulatory report drafts (STR, CTR and others)
+      description: |
+        Sentinel prepares drafts. A human reviews and submits them outside Sentinel, then records
+        the submission. Export in a regulator's file format is disabled until that format's
+        registry entry is verified.
+      x-sentinel-phase: 7
+      x-sentinel-status: provisional
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /models:
+    get:
+      tags: [models]
+      operationId: listModels
+      summary: List model versions, approval state and monitoring status
+      x-sentinel-phase: 8
+      x-sentinel-status: provisional
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /investigate/questions:
+    post:
+      tags: [models]
+      operationId: askInvestigationQuestion
+      summary: Natural-language question over case data (read-only, tenant-scoped, cited)
+      x-sentinel-phase: 8
+      x-sentinel-status: provisional
+      requestBody: { $ref: "#/components/requestBodies/Provisional" }
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /indicators:
+    get:
+      tags: [threat-intel]
+      operationId: listIndicators
+      summary: Search threat indicators
+      x-sentinel-phase: 9
+      x-sentinel-status: provisional
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /kyc/checks:
+    post:
+      tags: [kyc]
+      operationId: createKycCheck
+      summary: Start a KYC check (document extraction, face match, liveness via configured providers)
+      x-sentinel-phase: 10
+      x-sentinel-status: provisional
+      requestBody: { $ref: "#/components/requestBodies/Provisional" }
+      responses:
+        "202": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /device/signals:
+    post:
+      tags: [device]
+      operationId: postDeviceSignals
+      summary: Submit device and behaviour signals from the bank's own app
+      description: Each submission must reference the user's consent record and a purpose.
+      x-sentinel-phase: 10
+      x-sentinel-status: provisional
+      requestBody: { $ref: "#/components/requestBodies/Provisional" }
+      responses:
+        "202": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /incidents:
+    get:
+      tags: [cyber-risk]
+      operationId: listIncidents
+      summary: Incident register with per-regulator reporting obligations and clocks
+      x-sentinel-phase: 11
+      x-sentinel-status: provisional
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /controls:
+    get:
+      tags: [cyber-risk]
+      operationId: listControls
+      summary: Control library and assessment status
+      x-sentinel-phase: 11
+      x-sentinel-status: provisional
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /webhooks:
+    get:
+      tags: [integrations]
+      operationId: listWebhooks
+      summary: List outbound webhook endpoints
+      x-sentinel-phase: 12
+      x-sentinel-status: provisional
+      responses:
+        "200": { $ref: "#/components/responses/Provisional" }
+        default: { $ref: "#/components/responses/Problem" }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://{keycloak-host}/realms/{tenant-realm}/.well-known/openid-configuration
+      description: Keycloak realm per tenant. Tokens carry `tenant_id`, `branch_ids` and roles.
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, maxLength: 128 }
+    BatchId:
+      name: batch_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RuleId:
+      name: rule_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RuleVersionNumber:
+      name: version
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    CaseId:
+      name: case_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EntityId:
+      name: entity_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  requestBodies:
+    Provisional:
+      description: Shape defined in the module's build phase.
+      content:
+        application/json:
+          schema: { type: object }
+
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Provisional:
+      description: Shape defined in the module's build phase.
+      content:
+        application/json:
+          schema: { type: object }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        trace_id: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    Token:
+      type: string
+      pattern: "^tok_[a-z]+_[A-Za-z0-9_-]{16,}$"
+      description: Tokenised identifier. Never a clear value.
+
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: string
+          pattern: "^-?[0-9]+(\\.[0-9]{1,2})?$"
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+
+    Severity:
+      type: string
+      enum: [low, medium, high, critical]
+
+    Tenant:
+      type: object
+      required: [id, name, institution_type, status]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        institution_type:
+          type: string
+          enum: [urban_cooperative_bank, state_cooperative_bank, district_central_cooperative_bank, small_finance_bank, nbfc, other]
+        status: { type: string, enum: [active, suspended, offboarding] }
+
+    BranchCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, maxLength: 32 }
+        name: { type: string, maxLength: 200 }
+        parent_branch_id: { type: [string, "null"], format: uuid }
+
+    Branch:
+      allOf:
+        - $ref: "#/components/schemas/BranchCreate"
+        - type: object
+          required: [id, status]
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [active, closed] }
+
+    AuditEvent:
+      type: object
+      required: [id, sequence, occurred_at, actor_id, action, resource, hash, previous_hash]
+      properties:
+        id: { type: string, format: uuid }
+        sequence: { type: integer }
+        occurred_at: { type: string, format: date-time }
+        actor_id: { type: string }
+        actor_type: { type: string, enum: [user, service] }
+        action: { type: string }
+        resource: { type: string }
+        purpose: { type: string }
+        details:
+          type: object
+          description: Tokens and identifiers only
+        hash: { type: string }
+        previous_hash: { type: string }
+
+    AuditVerification:
+      type: object
+      required: [verified, records_checked]
+      properties:
+        verified: { type: boolean }
+        records_checked: { type: integer }
+        first_break_sequence: { type: [integer, "null"] }
+        last_anchor_at: { type: [string, "null"], format: date-time }
+
+    RevealRequest:
+      type: object
+      required: [token, purpose, reason]
+      properties:
+        token: { $ref: "#/components/schemas/Token" }
+        purpose: { type: string }
+        reason: { type: string, minLength: 1 }
+        case_id: { type: string, format: uuid }
+
+    RevealResponse:
+      type: object
+      required: [value, field_type]
+      properties:
+        value: { type: string }
+        field_type: { type: string }
+
+    BatchJob:
+      type: object
+      required: [id, dataset, status]
+      properties:
+        id: { type: string, format: uuid }
+        dataset: { type: string }
+        status: { type: string, enum: [received, validating, loading, completed, completed_with_errors, failed] }
+        records_total: { type: integer }
+        records_loaded: { type: integer }
+        records_quarantined: { type: integer }
+        file_sha256: { type: string }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+
+    QuarantineRecord:
+      type: object
+      required: [id, batch_id, errors]
+      properties:
+        id: { type: string, format: uuid }
+        batch_id: { type: string, format: uuid }
+        row_number: { type: integer }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, rule, message]
+            properties:
+              field: { type: string }
+              rule: { type: string }
+              message: { type: string }
+        status: { type: string, enum: [open, corrected, discarded] }
+
+    TransactionInput:
+      type: object
+      description: |
+        A transaction as sent by the bank. Identifier fields here are clear values in transit
+        (TLS); they are tokenised on receipt and never stored or logged in clear outside the vault.
+      required: [source_reference, channel, direction, amount, booked_at, account_number]
+      properties:
+        source_reference: { type: string, maxLength: 128 }
+        channel:
+          type: string
+          enum: [upi, imps, neft, rtgs, card, cash, cheque, aeps, internal, other]
+        direction: { type: string, enum: [debit, credit] }
+        amount: { $ref: "#/components/schemas/Money" }
+        booked_at: { type: string, format: date-time }
+        account_number: { type: string, maxLength: 64 }
+        branch_code: { type: string, maxLength: 32 }
+        counterparty_account_number: { type: [string, "null"], maxLength: 64 }
+        counterparty_vpa: { type: [string, "null"], maxLength: 255 }
+        counterparty_bank_code: { type: [string, "null"], maxLength: 32 }
+        device_id: { type: [string, "null"], maxLength: 255 }
+        ip_address: { type: [string, "null"] }
+        merchant_category: { type: [string, "null"] }
+        status: { type: string, enum: [attempted, completed, failed, reversed], default: attempted }
+        attributes:
+          type: object
+          additionalProperties:
+            type: [string, number, boolean, "null"]
+
+    ScoreReason:
+      type: object
+      required: [kind, code, contribution]
+      properties:
+        kind: { type: string, enum: [rule, model_feature, list_match, threshold] }
+        code: { type: string }
+        rule_version_id: { type: [string, "null"], format: uuid }
+        contribution: { type: number }
+        observed:
+          type: object
+          description: Values that triggered the reason. Tokens and numbers only.
+
+    ScoreResult:
+      type: object
+      required: [score_id, score, recommendation, reasons, ruleset_version_id, degraded]
+      properties:
+        score_id: { type: string, format: uuid }
+        transaction_id: { type: string, format: uuid }
+        score: { type: number, minimum: 0, maximum: 1 }
+        recommendation:
+          type: string
+          enum: [allow, review, hold_for_review]
+          description: Advisory. Sentinel takes no action on funds.
+        reasons:
+          type: array
+          items: { $ref: "#/components/schemas/ScoreReason" }
+        ruleset_version_id: { type: string, format: uuid }
+        model_version_id: { type: [string, "null"], format: uuid }
+        degraded: { type: boolean }
+        latency_ms: { type: number }
+
+    RuleState:
+      type: string
+      enum: [draft, dry_run, pending_approval, active, retired]
+
+    RuleExpression:
+      type: object
+      description: |
+        Expression tree. Node kinds and the field and feature vocabulary are fixed in Phase 4
+        (ADR 0006). Rules contain no executable code.
+      required: [op]
+      properties:
+        op: { type: string }
+        args:
+          type: array
+          items: {}
+
+    RuleDraft:
+      type: object
+      required: [name, expression, severity]
+      properties:
+        name: { type: string, maxLength: 200 }
+        description: { type: string }
+        applies_to_channels:
+          type: array
+          items: { type: string }
+        expression: { $ref: "#/components/schemas/RuleExpression" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        score_weight: { type: number }
+
+    RuleVersion:
+      allOf:
+        - $ref: "#/components/schemas/RuleDraft"
+        - type: object
+          required: [rule_id, version, state, author_id]
+          properties:
+            rule_id: { type: string, format: uuid }
+            version: { type: integer }
+            state: { $ref: "#/components/schemas/RuleState" }
+            author_id: { type: string }
+            approver_id: { type: [string, "null"] }
+            activated_at: { type: [string, "null"], format: date-time }
+
+    Rule:
+      type: object
+      required: [id, name, current_version]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        current_version: { $ref: "#/components/schemas/RuleVersion" }
+
+    BacktestRun:
+      type: object
+      required: [id, rule_id, version, status]
+      properties:
+        id: { type: string, format: uuid }
+        rule_id: { type: string, format: uuid }
+        version: { type: integer }
+        status: { type: string, enum: [queued, running, completed, failed] }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        transactions_evaluated: { type: integer }
+        hits: { type: integer }
+        true_positives: { type: [integer, "null"] }
+        false_positives: { type: [integer, "null"] }
+        false_negatives: { type: [integer, "null"] }
+        precision: { type: [number, "null"] }
+        recall: { type: [number, "null"] }
+        estimated_alerts_per_day: { type: [number, "null"] }
+
+    Alert:
+      type: object
+      required: [id, source_module, alert_type, severity, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        source_module: { type: string }
+        alert_type: { type: string }
+        severity: { $ref: "#/components/schemas/Severity" }
+        priority_score: { type: number, minimum: 0, maximum: 1 }
+        status: { type: string, enum: [new, triaged, in_case, closed] }
+        subject:
+          type: object
+          required: [kind, ref]
+          properties:
+            kind: { type: string }
+            ref: { type: string }
+        score_id: { type: [string, "null"], format: uuid }
+        case_id: { type: [string, "null"], format: uuid }
+        assignee: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+
+    CaseStatus:
+      type: string
+      enum: [new, triaged, investigating, pending_approval, actioned, reported, closed]
+
+    Case:
+      type: object
+      required: [id, reference, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        reference: { type: string }
+        title: { type: string }
+        status: { $ref: "#/components/schemas/CaseStatus" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        branch_id: { type: [string, "null"], format: uuid }
+        assignee: { type: [string, "null"] }
+        due_at: { type: [string, "null"], format: date-time }
+        alert_ids:
+          type: array
+          items: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    EvidenceInput:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [record_reference, file, external_link] }
+        record_ref: { type: string }
+        upload_id: { type: string, format: uuid }
+        description: { type: string }
+
+    DecisionInput:
+      type: object
+      required: [outcome, reason_code]
+      properties:
+        alert_id: { type: string, format: uuid }
+        outcome:
+          type: string
+          enum: [confirmed_fraud, confirmed_suspicious, false_positive, inconclusive]
+        reason_code: { type: string }
+        comment: { type: string }
+
+    SummaryDraft:
+      type: object
+      required: [id, is_draft, generated_by, sections]
+      properties:
+        id: { type: string, format: uuid }
+        is_draft: { type: boolean, const: true }
+        generated_by:
+          type: string
+          description: Provider and model identifier, or `template`
+        sections:
+          type: array
+          items:
+            type: object
+            required: [text, evidence_ids]
+            properties:
+              text: { type: string }
+              evidence_ids:
+                type: array
+                minItems: 1
+                items: { type: string }

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.invalid/schemas/events/case.updated.schema.json",
+  "title": "Case updated",
+  "description": "Payload of `cases.case.updated`. Wrapped in envelope.schema.json.",
+  "type": "object",
+  "required": [
+    "case_id",
+    "change",
+    "status",
+    "actor_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "change": {
+      "enum": [
+        "opened",
+        "assigned",
+        "status_changed",
+        "evidence_added",
+        "note_added",
+        "escalated",
+        "reopened",
+        "closed"
+      ]
+    },
+    "status": {
+      "enum": [
+        "new",
+        "triaged",
+        "investigating",
+        "pending_approval",
+        "actioned",
+        "reported",
+        "closed"
+      ]
+    },
+    "previous_status": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actor_id": {
+      "type": "string",
+      "description": "User or system principal id"
+    },
+    "alert_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    }
+  }
+}

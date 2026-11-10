@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.invalid/schemas/events/score.computed.schema.json",
+  "title": "Score computed",
+  "description": "Payload of `txn_fraud.score.computed`. Wrapped in envelope.schema.json.",
+  "type": "object",
+  "required": [
+    "score_id",
+    "transaction_id",
+    "score",
+    "recommendation",
+    "ruleset_version_id",
+    "degraded",
+    "reasons"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "score_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "transaction_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "recommendation": {
+      "enum": [
+        "allow",
+        "review",
+        "hold_for_review"
+      ],
+      "description": "Advisory only. Sentinel takes no action on funds."
+    },
+    "ruleset_version_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "model_version_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "degraded": {
+      "type": "boolean",
+      "description": "True when scoring ran without counters or model"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reason"
+      }
+    },
+    "latency_ms": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "reason": {
+      "type": "object",
+      "required": [
+        "kind",
+        "code",
+        "contribution"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "rule",
+            "model_feature",
+            "list_match",
+            "threshold"
+          ]
+        },
+        "code": {
+          "type": "string"
+        },
+        "rule_version_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "contribution": {
+          "type": "number",
+          "description": "Signed contribution to the score"
+        },
+        "observed": {
+          "type": "object",
+          "description": "Values that triggered the reason; tokens and numbers only"
+        }
+      }
+    }
+  }
+}
